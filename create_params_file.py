@@ -1,6 +1,6 @@
 import sys
 
-# Get filename as an argument to the script
+# Get frag_picker file as an argument
 frags_file_path = sys.argv[1]
 
 # Read only needed values from frags_file and store them in frags_file_values
