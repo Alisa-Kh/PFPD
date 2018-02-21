@@ -23,6 +23,9 @@ FIXBB = PATH_TO_ROSETTA + '/main/source/bin/fixbb.linuxgccrelease' \
                           ' -scorefile design_score.sc -ignore_zero_occupancy false' \
                           ' >>design.log'
 
+FIXBB_SCRIPTS = PATH_TO_ROSETTA + '/main/source/bin/rosetta_scripts.default.linuxgccrelease -database '\
+                + ROSETTA_DATABASE + ' -parser:protocol {}'
+
 BUILD_PEPTIDE = PATH_TO_ROSETTA + '/main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
                                   ' -database ' + ROSETTA_DATABASE + ' -out:file:o peptide.pdb ' \
                                   '> build_peptide.log'
@@ -84,20 +87,8 @@ def create_params_file(frags):
     frags_parameters = open('50_frags_parameters', 'w+')
     with open(frags) as frags_file:
         all_file_lines = frags_file.readlines()
-    top_50_frags_block = 40 + pep_length * 50
 
-    # Count a number of lines in one block (one fragment)
-    # first_blank_line = None
-    # second_blank_line = None
-    # for i in range(len(all_file_lines)):
-    #     if all_file_lines[i] in ['\n', '\r\n']:
-    #         if first_blank_line is None:
-    #             first_blank_line = i
-    #         elif second_blank_line is None:
-    #             second_blank_line = i
-    #             break
-    #
-    # lines_in_block_num = second_blank_line - first_blank_line
+    top_50_frags_block = 40 + pep_length * 50
 
     # Get parameters and save them in parameters_sets list
     j = 0
@@ -202,19 +193,22 @@ def extract_fragments(pep_sequence):
     os.chdir('top_50_frags')
     # Fetch PDBs (here done with prody), call excisePdb and then delete the pdb file
     for pdb, chain, start, end, sequence in zip(pdbs, chains, start_res, end_res, sequences):
-        outfile = pdb + '.' + chain + '.' + start + '.' + end + '.pdb'
+        fragment_name = pdb + '.' + chain + '.' + start + '.' + end
+        outfile = fragment_name + '.pdb'
         pdb_full = pdb + '.pdb'
 
         os.system(PRODY % pdb)
 
         if os.path.exists(pdb_full):
             os.system(EXCISE_PDB.format(pdb_full, chain, start, end, outfile))
+            print("Extracting fragment")
         else:
+            print("Failed to fetch pdb")
             continue  # if failed to fetch PDB
 
         if not os.path.exists(outfile):
             new_pdb = pdb_full
-            print("renumbering:")
+            print("The numeration is incorrect, renumbering...:")
             os.system(RENUMBERING.format(pdb_full, new_pdb))  # Renumber PDB if it doesn't start from 1
 
             os.system(EXCISE_PDB.format(pdb_full, chain, start, end, outfile))
@@ -223,19 +217,19 @@ def extract_fragments(pep_sequence):
         is_frag_ok = review_frags(outfile, start, end)
 
         if is_frag_ok:
-            create_resfile(pep_sequence, chain, start, sequence)
-            pdb_resfiles_dict[outfile] = 'resfile_' + sequence
+            create_resfile(pep_sequence, chain, start, sequence, fragment_name)
+            pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
 
     os.chdir('../')
     return pdb_resfiles_dict
 
 
-def create_resfile(ori_seq, chain, start, sequence):
+def create_resfile(ori_seq, chain, start, sequence, fragment_name):
 
-    path_to_resfile = 'resfiles/resfile_%s'
+    path_to_resfile = '../resfiles/resfile_%s'
 
     # Create resfile for each fragment
-    resfile = open(path_to_resfile % sequence, 'w')
+    resfile = open(path_to_resfile % fragment_name, 'w')
     resfile.write('NATRO\nstart')
     if chain == '_':
         chain = 'A'
@@ -248,23 +242,25 @@ def create_resfile(ori_seq, chain, start, sequence):
     resfile.close()
 
 
-    # # fixbb run
-    # print("running fixbb design")
-    # os.system(FIXBB % (outfile, sequence))
-    #
-    # os.remove(outfile)
-
-
 def create_xml(pdb_resfile_dict):
     job_string = '<Job>\n\t<Input>\n\t\t<PDB fillename="{}"/>\n\t</Input>\n' \
-                 '\t<TASKOPERATIONS>\n\t\t<ReadResfile name="read_resfile"/> filename="{}"\n' \
-                 '\t</TASKOPERATIONS>\n</Job>'
-    with open('top_50_frags/design.xml', 'w') as xml_file:
+                 '\t<TASKOPERATIONS>\n\t\t<ReadResfile name="read_resfile" filename="{}"/>\n' \
+                 '\t</TASKOPERATIONS>\n</Job>\n'
+    if not os.path.exists('top_50_frags/fixbb'):
+        os.makedirs('top_50_frags/fixbb')
+    with open('top_50_frags/fixbb/design.xml', 'w') as xml_file:
         xml_file.write('<JobDefinitionFile>\n')
-        for pdb, resfile in pdb_resfile_dict:
+        for pdb, resfile in pdb_resfile_dict.items():
             xml_file.write(job_string.format(pdb, resfile))
         xml_file.write('</JobDefinitionFile>')
     return xml_file
+
+
+def run_fixbb():
+
+    os.chdir('top_50_frags/fixbb')
+    print("running fixbb design")
+    os.system(FIXBB_SCRIPTS.format('design.xml'))
 
 
 def build_peptide(pep_seq):
@@ -303,8 +299,8 @@ if __name__ == "__main__":
 
     xml_design = create_xml(pdb_and_resfiles) # create xml for running fixbb with RS
 
-    
     # run fixbb
+    run_fixbb()
 
     # preprocessing for PIPER
     # run PIPER
