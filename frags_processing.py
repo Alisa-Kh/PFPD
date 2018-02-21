@@ -31,9 +31,11 @@ MAKE_FRAGMENTS = 'perl make_fragments.pl -verbose -id xxxxx {} 2>log'
 FRAG_PICKER = PATH_TO_ROSETTA + '/main/source/bin/fragment_picker.linuxgccrelease' \
                                 ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
 
+COPY = 'cp {} {}'
+
 # Other constants
 
-PARAMS_FILENAME = 'frags.100.{}mers'
+FRAGS_FILE = 'frags.100.{}mers'
 CUR_DIR = os.getcwd()
 
 
@@ -41,6 +43,7 @@ def make_pick_fragments(pep_seq):
     frags_dir = 'frag_picker'
     if not os.path.exists(frags_dir):
         os.makedirs(frags_dir)
+    os.system(COPY.format('make_fragments.pl', frags_dir))
     with open(os.path.join(frags_dir, 'xxxxx.fasta'), 'w') as fasta_file:
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
     os.chdir(frags_dir)
@@ -70,7 +73,8 @@ def make_pick_fragments(pep_seq):
                          '-mute\tcore.chemical\n'
                          '-mute\tprotocols.jumping')
     os.system(FRAG_PICKER)
-    os.chdir(CUR_DIR)
+    os.system(COPY.format(FRAGS_FILE.format(pep_length), '../'))
+    os.chdir('../')
 
 
 def create_params_file(frags):
@@ -229,7 +233,7 @@ def fixbb_design(ori_seq, chain, start, sequence, outfile):
 
     # fixbb run
     print("running fixbb design")
-    os.system(FIXBB % (sequence, outfile))
+    os.system(FIXBB % (outfile, sequence))
 
     os.remove(outfile)
 
@@ -259,10 +263,12 @@ if __name__ == "__main__":
     with open(sys.argv[1], 'r') as peptide:
         peptide_seq = peptide.readline().strip()
 
+    pep_length = len(peptide_seq)
+
     make_pick_fragments(peptide_seq)
 
     # extract parameters from fragment picker output for extracting fragments
-    create_params_file(PARAMS_FILENAME.format(str(len(peptide_seq))))
+    create_params_file(FRAGS_FILE.format(str(pep_length)))
 
     extract_fragments(peptide_seq)  # extract fragments, create resfiles and run fixbb design
 
