@@ -81,30 +81,32 @@ def create_params_file(frags):
 
     # Read only needed values from frags_file and store them in frags_file_values
     parameters_sets = []
-    frags_parameters = open('frags_parameters', 'w+')
+    frags_parameters = open('50_frags_parameters', 'w+')
     with open(frags) as frags_file:
         all_file_lines = frags_file.readlines()
+    top_50_frags_block = 40 + pep_length * 50
 
     # Count a number of lines in one block (one fragment)
-    first_blank_line = None
-    second_blank_line = None
-    for i in range(len(all_file_lines)):
-        if all_file_lines[i] in ['\n', '\r\n']:
-            if first_blank_line is None:
-                first_blank_line = i
-            elif second_blank_line is None:
-                second_blank_line = i
-                break
+    # first_blank_line = None
+    # second_blank_line = None
+    # for i in range(len(all_file_lines)):
+    #     if all_file_lines[i] in ['\n', '\r\n']:
+    #         if first_blank_line is None:
+    #             first_blank_line = i
+    #         elif second_blank_line is None:
+    #             second_blank_line = i
+    #             break
+    #
+    # lines_in_block_num = second_blank_line - first_blank_line
 
-    lines_in_block_num = second_blank_line - first_blank_line
     # Get parameters and save them in parameters_sets list
     j = 0
-    for i in range(2, len(all_file_lines)):
-        if j % lines_in_block_num == 0:
+    for i in range(2, top_50_frags_block):
+        if j % (pep_length + 1) == 0:
             first_line_in_set = all_file_lines[i]
-            last_line_in_set = all_file_lines[i+(lines_in_block_num-2)]
+            last_line_in_set = all_file_lines[i+(pep_length-1)]
             seq = ""
-            for k in range(i, i+lines_in_block_num-1):
+            for k in range(i, i+pep_length):
                 line = all_file_lines[k].split()
                 seq += line[3]
             first_line_words = first_line_in_set.split()
@@ -172,7 +174,7 @@ def review_frags(outfile, start, end):
 def extract_fragments(pep_sequence):
 
     # Open the frags_parameters, extract and append parameters to different lists
-    with open('frags_parameters', 'r') as f:
+    with open('50_frags_parameters', 'r') as f:
         fragments = f.readlines()
     pdbs = []
     chains = []
@@ -186,6 +188,18 @@ def extract_fragments(pep_sequence):
         end_res.append(frag.split()[3])
         sequences.append(frag.split()[4])
 
+    # create directory for top 50 frags
+    if not os.path.exists('top_50_frags'):
+        os.makedirs('top_50_frags')
+
+    # create directory for storing resfiles
+    if not os.path.exists('resfiles'):
+        os.makedirs('resfiles')
+
+    # for storing resfiles_names and pdbs
+    pdb_resfiles_dict = dict()
+
+    os.chdir('top_50_frags')
     # Fetch PDBs (here done with prody), call excisePdb and then delete the pdb file
     for pdb, chain, start, end, sequence in zip(pdbs, chains, start_res, end_res, sequences):
         outfile = pdb + '.' + chain + '.' + start + '.' + end + '.pdb'
@@ -209,13 +223,15 @@ def extract_fragments(pep_sequence):
         is_frag_ok = review_frags(outfile, start, end)
 
         if is_frag_ok:
-            fixbb_design(pep_sequence, chain, start, sequence, outfile)
+            create_resfile(pep_sequence, chain, start, sequence)
+            pdb_resfiles_dict[outfile] = 'resfile_' + sequence
+
+    os.chdir('../')
+    return pdb_resfiles_dict
 
 
-def fixbb_design(ori_seq, chain, start, sequence, outfile):
+def create_resfile(ori_seq, chain, start, sequence):
 
-    if not os.path.exists('resfiles'):  # create directory for storing resfiles
-        os.makedirs('resfiles')
     path_to_resfile = 'resfiles/resfile_%s'
 
     # Create resfile for each fragment
@@ -231,11 +247,24 @@ def fixbb_design(ori_seq, chain, start, sequence, outfile):
                           ' EX 1 EX 2')
     resfile.close()
 
-    # fixbb run
-    print("running fixbb design")
-    os.system(FIXBB % (outfile, sequence))
 
-    os.remove(outfile)
+    # # fixbb run
+    # print("running fixbb design")
+    # os.system(FIXBB % (outfile, sequence))
+    #
+    # os.remove(outfile)
+
+
+def create_xml(pdb_resfile_dict):
+    job_string = '<Job>\n\t<Input>\n\t\t<PDB fillename="{}"/>\n\t</Input>\n' \
+                 '\t<TASKOPERATIONS>\n\t\t<ReadResfile name="read_resfile"/> filename="{}"\n' \
+                 '\t</TASKOPERATIONS>\n</Job>'
+    with open('top_50_frags/design.xml', 'w') as xml_file:
+        xml_file.write('<JobDefinitionFile>\n')
+        for pdb, resfile in pdb_resfile_dict:
+            xml_file.write(job_string.format(pdb, resfile))
+        xml_file.write('</JobDefinitionFile>')
+    return xml_file
 
 
 def build_peptide(pep_seq):
@@ -245,8 +274,8 @@ def build_peptide(pep_seq):
 
     # Change chain ID to 'B'
     renamed_peptide = []
-    with open('peptide.pdb', 'r') as peptide:
-        pdb_lines = peptide.readlines()
+    with open('peptide.pdb', 'r') as pep:
+        pdb_lines = pep.readlines()
     for line in pdb_lines:
         if line[21].isalpha():
             new_line = list(line)
@@ -267,9 +296,21 @@ if __name__ == "__main__":
 
     make_pick_fragments(peptide_seq)
 
-    # extract parameters from fragment picker output for extracting fragments
     create_params_file(FRAGS_FILE.format(str(pep_length)))
 
-    extract_fragments(peptide_seq)  # extract fragments, create resfiles and run fixbb design
+    pdb_and_resfiles = extract_fragments(peptide_seq)  # extract fragments, create resfiles
+    #  and return a dictionary with fragments names and matching resfiles names
+
+    xml_design = create_xml(pdb_and_resfiles) # create xml for running fixbb with RS
+
+    
+    # run fixbb
+
+    # preprocessing for PIPER
+    # run PIPER
+    # extract top 250 models
 
     build_peptide(peptide_seq)  # build extended peptide and change it's chain id to 'B'
+    # prepack receptor
+    # run refinement
+    # clustering
