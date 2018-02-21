@@ -1,34 +1,49 @@
 import sys
 import os
 
+# Rosetta directories
+
 ROSETTA_DIR = '/vol/ek/share/rosetta/'
 ROSETTA_VERSION = 'rosetta_src_2017.45.59812_bundle'
-ROSETTA_DATABASE = ROSETTA_DIR + ROSETTA_VERSION + '/main/database'
-PARAMS_FILENAME = 'frags.100.{}mers'
+PATH_TO_ROSETTA = ROSETTA_DIR + ROSETTA_VERSION
+ROSETTA_DATABASE = PATH_TO_ROSETTA + '/main/database'
+
 
 # Commands
 
 PRODY = '/vol/ek/share/csbw/tools/env2017/bin/prody fetch %s'  # used to fetch PDB, but any other method can be used
-RENUMBERING = ROSETTA_DIR + ROSETTA_VERSION + '/tools/protein_tools/scripts/pdb_renumber.py {} {}'
-EXCISE_PDB = ROSETTA_DIR + '/pdbUtil/excisePdb_v2.pl {} {} {} {} {}'
-FIXBB = ROSETTA_DIR + ROSETTA_VERSION + '/main/source/bin/fixbb.linuxgccrelease' \
-                                        ' -database %s -in:file:s %s -resfile resfile_tmp -ex1 -ex2 -use_input_sc' \
-                                        ' -scorefile design_score.sc -ignore_zero_occupancy false >>design.log'
 
-BUILD_PEPTIDE = ROSETTA_DIR + ROSETTA_VERSION + '/main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
-                                                ' -database ' + ROSETTA_DATABASE + ' -out:file:o peptide.pdb ' \
-                                                                                   '> build_peptide.log'
+RENUMBERING = PATH_TO_ROSETTA + '/tools/protein_tools/scripts/pdb_renumber.py {} {}'
+
+EXCISE_PDB = ROSETTA_DIR + '/pdbUtil/excisePdb_v2.pl {} {} {} {} {}'
+
+FIXBB = PATH_TO_ROSETTA + '/main/source/bin/fixbb.linuxgccrelease' \
+                          ' -database ' + ROSETTA_DATABASE + ' -in:file:s %s' \
+                          ' -resfile resfiles/resfile_%s -ex1 -ex2 -use_input_sc' \
+                          ' -scorefile design_score.sc -ignore_zero_occupancy false' \
+                          ' >>design.log'
+
+BUILD_PEPTIDE = PATH_TO_ROSETTA + '/main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
+                                  ' -database ' + ROSETTA_DATABASE + ' -out:file:o peptide.pdb ' \
+                                  '> build_peptide.log'
+
 MAKE_FRAGMENTS = 'perl make_fragments.pl -verbose -id xxxxx {} 2>log'
-FRAG_PICKER = ROSETTA_DIR + ROSETTA_VERSION + '/main/source/bin/fragment_picker.linuxgccrelease' \
-              ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
+FRAG_PICKER = PATH_TO_ROSETTA + '/main/source/bin/fragment_picker.linuxgccrelease' \
+                                ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
+
+# Other constants
+
+PARAMS_FILENAME = 'frags.100.{}mers'
+CUR_DIR = os.getcwd()
 
 
 def make_pick_fragments(pep_seq):
-    # if not os.path.exists('resfiles'):
-    #     os.makedirs('frag_picker')
-    with open('xxxxx.fasta', 'w') as fasta_file:
+    frags_dir = 'frag_picker'
+    if not os.path.exists(frags_dir):
+        os.makedirs(frags_dir)
+    with open(os.path.join(frags_dir, 'xxxxx.fasta'), 'w') as fasta_file:
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
-
+    os.chdir(frags_dir)
     os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))
     with open('psi_L1.cfg', 'w') as scores:
         scores.write('#score\tname\tpriority\twght\tmin_allowed\textras\n'
@@ -39,22 +54,23 @@ def make_pick_fragments(pep_seq):
                      '#FragmentCrmsd\t30\t0.0\t-\n'
                      '#FragmentAllAtomCrmsd\t20\t0.0\t-')
     with open('flags', 'w') as flags_file:
-        flags_file.write('-in:file:vall\t' + ROSETTA_DIR + 'rosetta_fragments_latest/nnmake_database'
-                                                           '/vall.dat.2006-05-05\n')
-        flags_file.write('-in:file:checkpoint\txxxxx.checkpoint\n')
-        flags_file.write('-frags:describe_fragments\tfrags.fsc\n')
-        flags_file.write('-frags:frag_sizes\t' + str(len(pep_seq)) + '\n')
-        flags_file.write('-frags:n_candidates\t2000\n')
-        flags_file.write('-frags:n_frags\t100\n')
-        flags_file.write('-out:file:frag_prefix\tfrags\n')
-        flags_file.write('-frags:ss_pred\txxxxx.psipred_ss2 psipred\n')
-        flags_file.write('-frags:scoring:config\tpsi_L1.cfg\n')
-        flags_file.write('-frags:bounded_protocol\ttrue\n')
-        flags_file.write('-mute\tcore.util.prof\n')
-        flags_file.write('-mute\tcore.conformation\n')
-        flags_file.write('-mute\tcore.chemical\n')
-        flags_file.write('-mute\tprotocols.jumping')
+        flags_file.write('-in:file:vall\t' + ROSETTA_DIR +
+                         'rosetta_fragments_latest/nnmake_database/vall.dat.2006-05-05\n'
+                         '-in:file:checkpoint\txxxxx.checkpoint\n'
+                         '-frags:describe_fragments\tfrags.fsc\n'
+                         '-frags:frag_sizes\t' + str(len(pep_seq)) + '\n'
+                         '-frags:n_candidates\t2000\n'
+                         '-frags:n_frags\t100\n'
+                         '-out:file:frag_prefix\tfrags\n'
+                         '-frags:ss_pred\txxxxx.psipred_ss2 psipred\n'
+                         '-frags:scoring:config\tpsi_L1.cfg\n'
+                         '-frags:bounded_protocol\ttrue\n'
+                         '-mute\tcore.util.prof\n'
+                         '-mute\tcore.conformation\n'
+                         '-mute\tcore.chemical\n'
+                         '-mute\tprotocols.jumping')
     os.system(FRAG_PICKER)
+    os.chdir(CUR_DIR)
 
 
 def create_params_file(frags):
@@ -192,29 +208,6 @@ def extract_fragments(pep_sequence):
             fixbb_design(pep_sequence, chain, start, sequence, outfile)
 
 
-def create_resfile(ori_seq, chain, start, sequence):
-
-    if not os.path.exists('resfiles'):  # create directory for storing resfiles
-        os.makedirs('resfiles')
-
-    path_to_resfile = 'resfiles/resfile_%s'
-
-    # Create resfile for each fragment
-
-    resfile = open(path_to_resfile % sequence, 'w')
-    resfile.write('NATRO\nstart')
-    if chain == '_':
-        chain = 'A'
-    for i, res in enumerate(sequence):
-        if res == ori_seq[i]:
-            resfile.write('\n' + str(i + int(start)) + ' ' + chain + ' NATRO')
-        else:
-            resfile.write('\n' + str(i + int(start)) + ' ' + chain + ' PIKAA ' + ori_seq[i] +
-                          ' EX 1 EX 2')
-    resfile.close()
-    return resfile
-
-
 def fixbb_design(ori_seq, chain, start, sequence, outfile):
 
     if not os.path.exists('resfiles'):  # create directory for storing resfiles
@@ -236,9 +229,8 @@ def fixbb_design(ori_seq, chain, start, sequence, outfile):
 
     # fixbb run
     print("running fixbb design")
-    os.system(FIXBB % (ROSETTA_DATABASE, outfile))
+    os.system(FIXBB % (sequence, outfile))
 
-    # os.remove('resfile_tmp')
     os.remove(outfile)
 
 
