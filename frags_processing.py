@@ -4,34 +4,39 @@ import os
 # Rosetta directories
 
 ROSETTA_DIR = '/vol/ek/share/rosetta/'
-ROSETTA_VERSION = 'rosetta_src_2017.45.59812_bundle'
-PATH_TO_ROSETTA = ROSETTA_DIR + ROSETTA_VERSION
-ROSETTA_DATABASE = PATH_TO_ROSETTA + '/main/database'
+ROSETTA_RELEASE = 'rosetta_src_2017.45.59812_bundle/'
+PATH_TO_ROSETTA = ROSETTA_DIR + ROSETTA_RELEASE
+ROSETTA_DATABASE = PATH_TO_ROSETTA + '/main/database/'
 
 
 # Commands
 
 PRODY = '/vol/ek/share/csbw/tools/env2017/bin/prody fetch %s'  # used to fetch PDB, but any other method can be used
 
-RENUMBERING = PATH_TO_ROSETTA + '/tools/protein_tools/scripts/pdb_renumber.py {} {}'
+RENUMBER_PDB = PATH_TO_ROSETTA + 'tools/protein_tools/scripts/pdb_renumber.py {} {}'
 
-EXCISE_PDB = ROSETTA_DIR + '/pdbUtil/excisePdb_v2.pl {} {} {} {} {}'
+SEQUENTIAL_RENUM = ROSETTA_DIR + 'pdbUtil/sequentialPdbResSeq.pl -pdbfile {} > {}'
 
-FIXBB = PATH_TO_ROSETTA + '/main/source/bin/fixbb.linuxgccrelease' \
+# EXCISE_PDB = ROSETTA_DIR + 'pdbUtil/excisePdb_v2.pl {} {} {} {} {}'
+
+EXTRACT_PDB = '/vol/ek/share/labscripts/extract_chains_and_range.pl -p {p} -c {c} -r {s}-{e} -o {o} >> extracting.log'
+
+FIXBB = PATH_TO_ROSETTA + 'main/source/bin/fixbb.linuxgccrelease' \
                           ' -database ' + ROSETTA_DATABASE + ' -in:file:s %s' \
                           ' -resfile resfiles/resfile_%s -ex1 -ex2 -use_input_sc' \
                           ' -scorefile design_score.sc -ignore_zero_occupancy false' \
                           ' >>design.log'
 
-FIXBB_SCRIPTS = PATH_TO_ROSETTA + '/main/source/bin/rosetta_scripts.default.linuxgccrelease -database '\
+FIXBB_SCRIPTS = PATH_TO_ROSETTA + 'main/source/bin/rosetta_scripts.default.linuxgccrelease -database '\
                 + ROSETTA_DATABASE + ' -parser:protocol {}'
 
-BUILD_PEPTIDE = PATH_TO_ROSETTA + '/main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
+BUILD_PEPTIDE = PATH_TO_ROSETTA + 'main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
                                   ' -database ' + ROSETTA_DATABASE + ' -out:file:o peptide.pdb ' \
                                   '> build_peptide.log'
 
-MAKE_FRAGMENTS = 'perl make_fragments.pl -verbose -id xxxxx {} 2>log'
-FRAG_PICKER = PATH_TO_ROSETTA + '/main/source/bin/fragment_picker.linuxgccrelease' \
+MAKE_FRAGMENTS = 'perl /vol/ek/share/scripts/global_pep_dock/fragpicker_setup/make_fragments.pl -verbose' \
+                 ' -id xxxxx {} 2>log'
+FRAG_PICKER = PATH_TO_ROSETTA + 'main/source/bin/fragment_picker.linuxgccrelease' \
                                 ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
 
 COPY = 'cp {} {}'
@@ -46,7 +51,7 @@ def make_pick_fragments(pep_seq):
     frags_dir = 'frag_picker'
     if not os.path.exists(frags_dir):
         os.makedirs(frags_dir)
-    os.system(COPY.format('make_fragments.pl', frags_dir))
+    # os.system(COPY.format('make_fragments.pl', frags_dir))
     with open(os.path.join(frags_dir, 'xxxxx.fasta'), 'w') as fasta_file:
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
     os.chdir(frags_dir)
@@ -84,15 +89,13 @@ def create_params_file(frags):
 
     # Read only needed values from frags_file and store them in frags_file_values
     parameters_sets = []
-    frags_parameters = open('50_frags_parameters', 'w+')
+    frags_parameters = open('frags_parameters', 'w+')
     with open(frags) as frags_file:
         all_file_lines = frags_file.readlines()
 
-    top_50_frags_block = 40 + pep_length * 50
-
     # Get parameters and save them in parameters_sets list
     j = 0
-    for i in range(2, top_50_frags_block):
+    for i in range(2, len(all_file_lines)):
         if j % (pep_length + 1) == 0:
             first_line_in_set = all_file_lines[i]
             last_line_in_set = all_file_lines[i+(pep_length-1)]
@@ -118,23 +121,24 @@ def create_params_file(frags):
 
 def delete_frag(fragment):  # delete bad fragments
     os.remove(fragment)
-    print("Wrong length fragment has been deleted")
+    print("The fragment has been deleted because of an incorrect length or zero occupancy")
 
 
 def review_frags(outfile, start, end):
     # check correctness of fragments
     with open(outfile) as frag:
         residues = set()
-        cur_line = frag.readline().split()
-        while cur_line[0] != 'ATOM':  # find ATOM lines
-            cur_line = frag.readline().split()
+        cur_line = frag.readline()
+        while 'ATOM' not in cur_line[0:4]:  # find ATOM lines
+            cur_line = frag.readline()
 
-            # if there is no atoms...
+            # if there there no atoms...
             if not cur_line:
                 delete_frag(outfile)
                 return False
 
-        cur_line = frag.readline()
+        cur_line = frag.readline()  # line with a first atom
+
         while cur_line[22:27].strip() != start:
             cur_line = frag.readline()
 
@@ -143,8 +147,14 @@ def review_frags(outfile, start, end):
                 delete_frag(outfile)
                 return False
 
-        cur_line = frag.readline()
+        cur_line = frag.readline()  # first atom of the start residue
         while cur_line[22:27].strip() != end:
+
+            # check occupancy
+            if cur_line[54:60].strip() == 0.00:
+                delete_frag(outfile)
+                return False
+
             residues.add(cur_line[22:27])
             cur_line = frag.readline()
 
@@ -162,10 +172,36 @@ def review_frags(outfile, start, end):
         return True
 
 
-def extract_fragments(pep_sequence):
+# def convert_mse_to_met(pdb_full):
+#     file_name = os.path.basename(pdb_full)
+#     os.rename(pdb_full, 'tmp.pdb')
+#     with open(file_name, 'w') as new_pdb:
+#         with open('tmp.pdb') as old_pdb:
+#             for line in old_pdb:
+#                 if 'HETATM' in line:
+#                     if 'MSE' in line:
+#                         editing_line = list(line)
+#                         editing_line[0] = 'A'
+#                         editing_line[1] = 'T'
+#                         editing_line[2] = 'O'
+#                         editing_line[3] = 'M'
+#                         editing_line[4] = ' '
+#                         editing_line[5] = ' '
+#                         editing_line[18] = 'E'
+#                         editing_line[19] = 'T'
+#                         new_line = "".join(editing_line)
+#                         new_pdb.write(new_line)
+#                     else:
+#                         new_pdb.write(line)
+#                 else:
+#                     new_pdb.write(line)
+#     os.remove('tmp.pdb')
+
+
+def extract_frags(pep_sequence):
 
     # Open the frags_parameters, extract and append parameters to different lists
-    with open('50_frags_parameters', 'r') as f:
+    with open('frags_parameters', 'r') as f:
         fragments = f.readlines()
     pdbs = []
     chains = []
@@ -200,25 +236,42 @@ def extract_fragments(pep_sequence):
         os.system(PRODY % pdb)
 
         if os.path.exists(pdb_full):
-            os.system(EXCISE_PDB.format(pdb_full, chain, start, end, outfile))
+
+            # preprocess pdb:
+            # convert_mse_to_met(pdb_full)  # should help in some cases
+
             print("Extracting fragment")
+            os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=start, e=end, o=outfile))
+
+            if not os.path.exists(outfile):
+                print("The numbering is incorrect, renumbering and trying again")
+                os.rename(pdb_full, 'tmp.pdb')
+                os.system(SEQUENTIAL_RENUM.format('tmp.pdb', pdb_full))  # Renumber PDB if it doesn't start from 1
+                os.remove('tmp.pdb')
+                os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=start, e=end, o=outfile))
+
+            os.remove(pdb_full)
+
+            if os.path.exists(outfile):
+
+                if review_frags(outfile, start, end):
+                    cur_dir = os.getcwd()
+                    frags_count = len([frag for frag in os.listdir('.') if
+                                       os.path.isfile(os.path.join(cur_dir, frag))])
+                    create_resfile(pep_sequence, chain, start, sequence, fragment_name)
+                    pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
+                    if frags_count >= 50:
+                        print("Got top 50 fragments")
+                        break
+                else:
+                    continue
+
+            else:
+                print("Failed to extract the fragment")
+                continue
         else:
             print("Failed to fetch pdb")
             continue  # if failed to fetch PDB
-
-        if not os.path.exists(outfile):
-            new_pdb = pdb_full
-            print("The numeration is incorrect, renumbering...:")
-            os.system(RENUMBERING.format(pdb_full, new_pdb))  # Renumber PDB if it doesn't start from 1
-
-            os.system(EXCISE_PDB.format(pdb_full, chain, start, end, outfile))
-        os.remove(pdb_full)
-
-        is_frag_ok = review_frags(outfile, start, end)
-
-        if is_frag_ok:
-            create_resfile(pep_sequence, chain, start, sequence, fragment_name)
-            pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
 
     os.chdir('../')
     return pdb_resfiles_dict
@@ -260,7 +313,10 @@ def run_fixbb():
 
     os.chdir('top_50_frags/fixbb')
     print("running fixbb design")
-    os.system(FIXBB_SCRIPTS.format('design.xml'))
+    for frag in os.listdir('.'):
+        resfile_name = 'resfile_' + os.path.splitext(os.path.basename(frag))[0]
+        os.system(FIXBB.format(frag, '../../resfiles/' + resfile_name))
+    # os.system(FIXBB_SCRIPTS.format('design.xml'))
 
 
 def build_peptide(pep_seq):
@@ -289,24 +345,24 @@ if __name__ == "__main__":
         peptide_seq = peptide.readline().strip()
 
     pep_length = len(peptide_seq)
+    #
+    # make_pick_fragments(peptide_seq)
+    #
+    # create_params_file(FRAGS_FILE.format(str(pep_length)))
 
-    make_pick_fragments(peptide_seq)
+    # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
+    pdb_and_resfiles = extract_frags(peptide_seq)
 
-    create_params_file(FRAGS_FILE.format(str(pep_length)))
-
-    pdb_and_resfiles = extract_fragments(peptide_seq)  # extract fragments, create resfiles
-    #  and return a dictionary with fragments names and matching resfiles names
-
-    xml_design = create_xml(pdb_and_resfiles) # create xml for running fixbb with RS
-
-    # run fixbb
-    run_fixbb()
-
-    # preprocessing for PIPER
-    # run PIPER
-    # extract top 250 models
-
-    build_peptide(peptide_seq)  # build extended peptide and change it's chain id to 'B'
-    # prepack receptor
-    # run refinement
-    # clustering
+    # xml_design = create_xml(pdb_and_resfiles)  # create xml for running fixbb with RS
+    #
+    # # run fixbb
+    # run_fixbb()
+    #
+    # # preprocessing for PIPER
+    # # run PIPER
+    # # extract top 250 models
+    #
+    # build_peptide(peptide_seq)  # build extended peptide and change it's chain id to 'B'
+    # # prepack receptor
+    # # run refinement
+    # # clustering
