@@ -24,7 +24,8 @@ EXTRACT_PDB = '/vol/ek/share/labscripts/extract_chains_and_range.pl -p {p} -c {c
 
 # EXTRACT_CHAINS = '/vol/ek/share/labscripts/extract_chains_and_range.pl -p {p} -a -o {o} >> extracting.log'
 
-GET_FASTA = ''
+GET_FASTA = 'perl /vol/ek/Home/alisa/rosetta/Rosetta/tools/perl_tools/getFastaFromCoords.pl -pdbfile {p} -chain {c}' \
+            '> fasta'
 
 FIXBB = PATH_TO_ROSETTA + 'main/source/bin/fixbb.linuxgccrelease' \
                           ' -database ' + ROSETTA_DATABASE + ' -in:file:s %s' \
@@ -256,10 +257,8 @@ def extract_frags(pep_sequence):
             print("Extracting fragment")
             os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=start, e=end, o=outfile))
 
-            os.remove(pdb_full)
-
             if os.path.exists(outfile) and os.path.getsize(outfile) > 0:
-
+                os.remove(pdb_full)
                 if review_frags(outfile, start, end):
                     cur_dir = os.getcwd()
                     frags_count = len([frag for frag in os.listdir('.') if
@@ -271,10 +270,26 @@ def extract_frags(pep_sequence):
                         break
                 else:
                     continue
-
-            else:
-                print("Failed to extract fragment")
-                continue
+            else:  # try to extract from fasta (if there are gaps in the structure)
+                print("Trying to extract from FASTA")
+                os.system(GET_FASTA.format(p=pdb_full, c=chain))
+                try:
+                    with open('fasta', 'r') as f:
+                        fasta = f.read()
+                        clean_fasta = fasta[fasta.find('\n'):].replace('\n', '')
+                        start = clean_fasta.find(sequence)
+                        end = start + pep_length - 1
+                    os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=start, e=end, o=outfile))
+                    if review_frags(outfile, start, end):
+                        print("success!")
+                        os.remove(pdb_full)
+                        os.remove('fasta')
+                    else:
+                        print("Failed to extract fragment")
+                        continue
+                except RuntimeError:
+                    print("Failed to extract fragment")
+                    continue
         else:
             print("Failed to fetch pdb")  # The PDB could be obsolete
             continue  # if failed to fetch PDB
