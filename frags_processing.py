@@ -12,17 +12,10 @@ ROSETTA_DATABASE = PATH_TO_ROSETTA + 'main/database/'
 # Commands
 
 PRODY = '/vol/ek/share/csbw/tools/env2017/bin/prody fetch %s'  # used to fetch PDB, but any other method can be used
-# GET_PDB = 'perl ~/rosetta/Rosetta/tools/perl_tools/getPdb.pl {}'
-# RENUMBER_PDB = 'python /vol/ek/Home/alisa/rosetta/Rosetta/tools/renumber_pdb.py --pdb={} --output={}'
-# CLEAN_PDB = 'python ~/rosetta/Rosetta/tools/protein_tools/scripts/clean_pdb.py {} {} --nopdbout >> log'
 
 SEQUENTIAL_RENUM = ROSETTA_DIR + 'pdbUtil/sequentialPdbResSeq.pl -pdbfile {} > {}'
 
-# EXCISE_PDB = ROSETTA_DIR + 'pdbUtil/excisePdb_v2.pl {} {} {} {} {}'
-
 EXTRACT_PDB = '/vol/ek/share/labscripts/extract_chains_and_range.pl -p {p} -c {c} -r {s}-{e} -o {o} >> extracting.log'
-
-# EXTRACT_CHAINS = '/vol/ek/share/labscripts/extract_chains_and_range.pl -p {p} -a -o {o} >> extracting.log'
 
 GET_FASTA = 'perl /vol/ek/Home/alisa/rosetta/Rosetta/tools/perl_tools/getFastaFromCoords.pl -pdbfile {p} -chain {c}' \
             '> fasta'
@@ -50,7 +43,26 @@ COPY = 'cp {} {}'
 # Other constants
 
 FRAGS_FILE = 'frags.100.{}mers'
-CUR_DIR = os.getcwd()
+THREE_TO_ONE_AA = {'G': 'GLY',
+                   'A': 'ALA',
+                   'V': 'VAL',
+                   'L': 'LEU',
+                   'I': 'ILE',
+                   'P': 'PRO',
+                   'C': 'CYS',
+                   'M': 'MET',
+                   'H': 'HIS',
+                   'F': 'PHE',
+                   'Y': 'TYR',
+                   'W': 'TRP',
+                   'N': 'ASN',
+                   'Q': 'GLN',
+                   'S': 'SER',
+                   'T': 'THR',
+                   'K': 'LYS',
+                   'R': 'ARG',
+                   'D': 'ASP',
+                   'E': 'GLU'}
 
 
 def make_pick_fragments(pep_seq):
@@ -179,6 +191,26 @@ def review_frags(outfile, start, end):
         return True
 
 
+def review_fasta_frag(outfile, sequence):
+    with open(outfile) as frag:
+        residues = ''
+        cur_line = frag.readline()
+        for i in range(pep_length):
+            if cur_line[:4] == 'ATOM' and cur_line[17:20] == THREE_TO_ONE_AA[sequence[i]]:
+                residues += sequence[i]
+                cur_resi = cur_line[22:27].strip()
+                while cur_resi == cur_line[22:27].strip():
+                    cur_line = frag.readline()
+            else:
+                print("Bad fragment. it will be saved in separate directory 'bad_fragments'")
+                if not os.path.exists('bad_fragments'):
+                    os.makedirs('bad_fragments')
+                os.rename(outfile, 'bad_fragments/' + outfile)
+                return False
+        if residues == sequence:
+            return True
+        return False
+
 # def convert_mse_to_met(pdb_full):
 #     file_name = os.path.basename(pdb_full)
 #     os.rename(pdb_full, 'tmp.pdb')
@@ -235,6 +267,7 @@ def extract_frags(pep_sequence):
 
     os.chdir('top_50_frags')
     # Fetch PDBs (here done with prody), call excisePdb and then delete the pdb file
+
     for pdb, chain, start, end, sequence in zip(pdbs, chains, start_res, end_res, sequences):
         fragment_name = pdb + '.' + chain + '.' + start + '.' + end
         outfile = fragment_name + '.pdb'
@@ -243,9 +276,6 @@ def extract_frags(pep_sequence):
         os.system(PRODY % pdb)
 
         if os.path.exists(pdb_full):
-
-            # preprocess pdb:
-            # convert_mse_to_met(pdb_full)  # should help in some cases
 
             os.rename(pdb_full, 'tmp.pdb')
             os.system(SEQUENTIAL_RENUM.format('tmp.pdb', pdb_full))  # Renumber PDB if it doesn't start from 1
@@ -265,7 +295,7 @@ def extract_frags(pep_sequence):
                                        os.path.isfile(os.path.join(cur_dir, frag))])
                     create_resfile(pep_sequence, chain, start, sequence, fragment_name)
                     pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
-                    if frags_count >= 51:   # there are also extracting log in the folder
+                    if frags_count >= 51:   # there is also an extracting log in the folder
                         print("Got top 50 fragments")
                         break
                 else:
@@ -273,22 +303,23 @@ def extract_frags(pep_sequence):
             else:  # try to extract from fasta (if there are gaps in the structure)
                 print("Trying to extract from FASTA")
                 os.system(GET_FASTA.format(p=pdb_full, c=chain))
-                try:
-                    with open('fasta', 'r') as f:
-                        fasta = f.read()
-                        clean_fasta = fasta[fasta.find('\n'):].replace('\n', '')
-                        start = clean_fasta.find(sequence)
-                        end = start + pep_length - 1
-                    os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=start, e=end, o=outfile))
-                    if review_frags(outfile, start, end):
+                with open('fasta', 'r') as f:
+                    fasta = f.read()
+                clean_fasta = fasta[fasta.find('\n'):].replace('\n', '')
+                fasta_start = clean_fasta.find(sequence) + 1
+                if fasta_start != 0:
+                    fasta_end = fasta_start + pep_length - 1
+                    os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=fasta_start, e=fasta_end, o=outfile))
+                    if review_fasta_frag(outfile, sequence):
                         print("success!")
                         os.remove(pdb_full)
                         os.remove('fasta')
                     else:
                         print("Failed to extract fragment")
+                        os.remove(pdb_full)
                         continue
-                except RuntimeError:
-                    print("Failed to extract fragment")
+                else:
+                    print("no matching sequence")
                     continue
         else:
             print("Failed to fetch pdb")  # The PDB could be obsolete
