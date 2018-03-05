@@ -137,13 +137,16 @@ def create_params_file(frags):
     frags_parameters.close()
 
 
-def delete_frag(fragment):  # delete bad fragments
-    os.remove(fragment)
-    print("The fragment has been deleted because of an incorrect length or zero occupancy")
+def bad_frag(fragment):  # delete bad fragments
+    print("Bad fragment. it will be saved in separate directory 'bad_fragments'")
+    if not os.path.exists('bad_fragments'):
+        os.makedirs('bad_fragments')
+    os.rename(fragment, 'bad_fragments/' + fragment)
+    return False
 
 
 def review_frags(outfile, start, end):
-    # check correctness of fragments
+    # check whether fragment is correct
     with open(outfile) as frag:
         residues = set()
         cur_line = frag.readline()
@@ -152,8 +155,7 @@ def review_frags(outfile, start, end):
 
             # if there there no atoms...
             if not cur_line:
-                delete_frag(outfile)
-                return False
+                return bad_frag(outfile)
 
         cur_line = frag.readline()  # line with a first atom
 
@@ -162,29 +164,26 @@ def review_frags(outfile, start, end):
 
             # if there is no start residue
             if not cur_line:
-                delete_frag(outfile)
-                return False
+                return bad_frag(outfile)
 
         cur_line = frag.readline()  # first atom of the start residue
         while cur_line[22:27].strip() != end:
 
             # check occupancy
             if cur_line[54:60].strip() == 0.00:
-                delete_frag(outfile)
                 print("Zero occupancy atoms")
-                return False
+                return bad_frag(outfile)
 
             residues.add(cur_line[22:27])
             cur_line = frag.readline()
 
             # if there is no end residue
             if not cur_line:
-                delete_frag(outfile)
-                return False
+                return bad_frag(outfile)
 
         residues.add(cur_line[22:27])
     if len(residues) != (int(end) - int(start) + 1):
-        delete_frag(outfile)
+        bad_frag(outfile)
         return False
 
     else:
@@ -202,11 +201,7 @@ def review_fasta_frag(outfile, sequence):
                 while cur_resi == cur_line[22:27].strip():
                     cur_line = frag.readline()
             else:
-                print("Bad fragment. it will be saved in separate directory 'bad_fragments'")
-                if not os.path.exists('bad_fragments'):
-                    os.makedirs('bad_fragments')
-                os.rename(outfile, 'bad_fragments/' + outfile)
-                return False
+                return bad_frag(outfile)
         if residues == sequence:
             return True
         return False
@@ -262,12 +257,11 @@ def extract_frags(pep_sequence):
     if not os.path.exists('resfiles'):
         os.makedirs('resfiles')
 
-    # for storing resfiles_names and pdbs
-    pdb_resfiles_dict = dict()
+    pdb_resfiles_dict = dict()  # names of pdbs and their resfiles
 
     os.chdir('top_50_frags')
-    # Fetch PDBs (here done with prody), call excisePdb and then delete the pdb file
 
+    # Fetch PDBs (here done with prody), extract fragments and create resfiles
     for pdb, chain, start, end, sequence in zip(pdbs, chains, start_res, end_res, sequences):
         fragment_name = pdb + '.' + chain + '.' + start + '.' + end
         outfile = fragment_name + '.pdb'
@@ -287,40 +281,43 @@ def extract_frags(pep_sequence):
             print("Extracting fragment")
             os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=start, e=end, o=outfile))
 
-            if os.path.exists(outfile) and os.path.getsize(outfile) > 0:
-                os.remove(pdb_full)
-                if review_frags(outfile, start, end):
-                    cur_dir = os.getcwd()
-                    frags_count = len([frag for frag in os.listdir('.') if
-                                       os.path.isfile(os.path.join(cur_dir, frag))])
-                    create_resfile(pep_sequence, chain, start, sequence, fragment_name)
-                    pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
-                    if frags_count >= 51:   # there is also an extracting log in the folder
-                        print("Got top 50 fragments")
-                        break
-                else:
-                    continue
-            else:  # try to extract from fasta (if there are gaps in the structure)
+            is_ok = False
+            if not os.path.exists(outfile) or os.path.getsize(outfile) == 0:
+
                 print("Trying to extract from FASTA")
                 os.system(GET_FASTA.format(p=pdb_full, c=chain))
                 with open('fasta', 'r') as f:
                     fasta = f.read()
                 clean_fasta = fasta[fasta.find('\n'):].replace('\n', '')
-                fasta_start = clean_fasta.find(sequence) + 1
-                if fasta_start != 0:
-                    fasta_end = fasta_start + pep_length - 1
-                    os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=fasta_start, e=fasta_end, o=outfile))
-                    if review_fasta_frag(outfile, sequence):
-                        print("success!")
-                        os.remove(pdb_full)
-                        os.remove('fasta')
-                    else:
-                        print("Failed to extract fragment")
-                        os.remove(pdb_full)
-                        continue
-                else:
+                fasta_start = clean_fasta.find(sequence) + 1  # +1 because of zero-based numbering
+                if fasta_start == 0:  # -1 would mean 'sequence doesn't exist', but we added 1
                     print("no matching sequence")
                     continue
+                fasta_end = fasta_start + pep_length - 1
+                os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=fasta_start, e=fasta_end, o=outfile))
+                is_ok = review_fasta_frag(outfile, sequence)
+                if is_ok:
+                    print("success!")
+                    os.remove('fasta')
+                else:
+                    print("Failed to extract fragment")
+                    os.remove(pdb_full)
+                    continue
+            else:
+                is_ok = review_frags(outfile, start, end)
+            os.remove(pdb_full)
+            if is_ok:
+                cur_dir = os.getcwd()
+                frags_count = len([frag for frag in os.listdir('.') if
+                                   os.path.isfile(os.path.join(cur_dir, frag))])
+                print("creating resfile")
+                create_resfile(pep_sequence, chain, start, sequence, fragment_name)
+                pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
+                if frags_count >= 51:   # there is also an extracting log in the folder
+                    print("Got top 50 fragments")
+                    break
+            else:
+                continue
         else:
             print("Failed to fetch pdb")  # The PDB could be obsolete
             continue  # if failed to fetch PDB
@@ -362,13 +359,13 @@ def create_xml(pdb_resfile_dict):
 
 
 def run_fixbb():
-
+    os.makedirs('top_50_frags/fixbb')
     os.chdir('top_50_frags/fixbb')
     print("running fixbb design")
     for frag in os.listdir('.'):
         resfile_name = 'resfile_' + os.path.splitext(os.path.basename(frag))[0]
         os.system(FIXBB.format(frag, '../../resfiles/' + resfile_name))
-    # os.system(FIXBB_SCRIPTS.format('design.xml'))
+    os.system(FIXBB_SCRIPTS.format('design.xml'))
 
 
 def build_peptide(pep_seq):
