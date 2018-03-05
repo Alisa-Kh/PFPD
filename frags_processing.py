@@ -20,14 +20,9 @@ EXTRACT_PDB = '/vol/ek/share/labscripts/extract_chains_and_range.pl -p {p} -c {c
 GET_FASTA = 'perl /vol/ek/Home/alisa/rosetta/Rosetta/tools/perl_tools/getFastaFromCoords.pl -pdbfile {p} -chain {c}' \
             '> fasta'
 
-FIXBB = PATH_TO_ROSETTA + 'main/source/bin/fixbb.linuxgccrelease' \
-                          ' -database ' + ROSETTA_DATABASE + ' -in:file:s %s' \
-                          ' -resfile resfiles/resfile_%s -ex1 -ex2 -use_input_sc' \
-                          ' -scorefile design_score.sc -ignore_zero_occupancy false' \
-                          ' >>design.log'
-
-FIXBB_SCRIPTS = PATH_TO_ROSETTA + 'main/source/bin/rosetta_scripts.default.linuxgccrelease -database '\
-                + ROSETTA_DATABASE + ' -parser:protocol {}'
+FIXBB_JD3 = 'mpirun -n 50 /vol/ek/Home/alisa/rosetta/Rosetta/main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
+            ' -database /vol/ek/Home/alisa/rosetta/Rosetta/main/database/' \
+            ' -in:file:job_definition_file {}'
 
 BUILD_PEPTIDE = PATH_TO_ROSETTA + 'main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
                                   ' -database ' + ROSETTA_DATABASE + ' -out:file:o peptide.pdb ' \
@@ -302,6 +297,7 @@ def extract_frags(pep_sequence):
                 else:
                     print("Failed to extract fragment")
                     os.remove(pdb_full)
+                    os.remove('fasta')
                     continue
             else:
                 is_ok = review_frags(outfile, start, end)
@@ -313,7 +309,7 @@ def extract_frags(pep_sequence):
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, start, sequence, fragment_name)
                 pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
-                if frags_count >= 51:   # there is also an extracting log in the folder
+                if frags_count >= 51:
                     print("Got top 50 fragments")
                     break
             else:
@@ -345,8 +341,8 @@ def create_resfile(ori_seq, chain, start, sequence, fragment_name):
 
 
 def create_xml(pdb_resfile_dict):
-    job_string = '<Job>\n\t<Input>\n\t\t<PDB fillename="{}"/>\n\t</Input>\n' \
-                 '\t<TASKOPERATIONS>\n\t\t<ReadResfile name="read_resfile" filename="{}"/>\n' \
+    job_string = '<Job>\n\t<Input>\n\t\t<PDB filename="../{}"/>\n\t</Input>\n' \
+                 '\t<TASKOPERATIONS>\n\t\t<ReadResfile name="read_resfile" filename="../../resfiles/{}"/>\n' \
                  '\t</TASKOPERATIONS>\n</Job>\n'
     if not os.path.exists('top_50_frags/fixbb'):
         os.makedirs('top_50_frags/fixbb')
@@ -359,13 +355,14 @@ def create_xml(pdb_resfile_dict):
 
 
 def run_fixbb():
-    os.makedirs('top_50_frags/fixbb')
+    # os.makedirs('top_50_frags/fixbb')
     os.chdir('top_50_frags/fixbb')
     print("running fixbb design")
-    for frag in os.listdir('.'):
-        resfile_name = 'resfile_' + os.path.splitext(os.path.basename(frag))[0]
-        os.system(FIXBB.format(frag, '../../resfiles/' + resfile_name))
-    os.system(FIXBB_SCRIPTS.format('design.xml'))
+    # for frag in os.listdir('.'):
+    #     resfile_name = 'resfile_' + os.path.splitext(os.path.basename(frag))[0]
+    #     os.system(FIXBB.format(frag, '../../resfiles/' + resfile_name))
+    os.system(FIXBB_JD3.format('design.xml'))
+    os.chdir('../../')
 
 
 def build_peptide(pep_seq):
@@ -394,24 +391,24 @@ if __name__ == "__main__":
         peptide_seq = peptide.readline().strip()
 
     pep_length = len(peptide_seq)
-    #
-    # make_pick_fragments(peptide_seq)
-    #
-    # create_params_file(FRAGS_FILE.format(str(pep_length)))
+
+    make_pick_fragments(peptide_seq)
+
+    create_params_file(FRAGS_FILE.format(str(pep_length)))
 
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
     pdb_and_resfiles = extract_frags(peptide_seq)
 
-    # xml_design = create_xml(pdb_and_resfiles)  # create xml for running fixbb with RS
-    #
-    # # run fixbb
-    # run_fixbb()
-    #
-    # # preprocessing for PIPER
-    # # run PIPER
-    # # extract top 250 models
-    #
-    # build_peptide(peptide_seq)  # build extended peptide and change it's chain id to 'B'
-    # # prepack receptor
-    # # run refinement
-    # # clustering
+    xml_design = create_xml(pdb_and_resfiles)  # create xml for running fixbb with RS
+
+    # run fixbb
+    run_fixbb()
+
+    # preprocessing for PIPER
+    # run PIPER
+    # extract top 250 models
+
+    build_peptide(peptide_seq)  # build extended peptide and change it's chain id to 'B'
+    # prepack receptor
+    # run refinement
+    # clustering
