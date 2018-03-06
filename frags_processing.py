@@ -3,35 +3,28 @@ import os
 
 # Rosetta directories
 
-ROSETTA_DIR = '/vol/ek/share/rosetta/'
-ROSETTA_RELEASE = 'rosetta_src_2017.45.59812_bundle/'
-PATH_TO_ROSETTA = ROSETTA_DIR + ROSETTA_RELEASE
-ROSETTA_DATABASE = PATH_TO_ROSETTA + 'main/database/'
+ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'
+
+ROSETTA_DATABASE = ROSETTA_DIR + 'main/database/'
 
 
 # Commands
+GET_PDB = '/vol/ek/Home/alisa/rosetta/Rosetta/tools/protein_tools/scripts/clean_pdb.py {} {}'
 
-PRODY = '/vol/ek/share/csbw/tools/env2017/bin/prody fetch %s'  # used to fetch PDB, but any other method can be used
-
-SEQUENTIAL_RENUM = ROSETTA_DIR + 'pdbUtil/sequentialPdbResSeq.pl -pdbfile {} > {}'
-
-EXTRACT_PDB = '/vol/ek/share/labscripts/extract_chains_and_range.pl -p {p} -c {c} -r {s}-{e} -o {o} >> extracting.log'
-
-GET_FASTA = 'perl /vol/ek/Home/alisa/rosetta/Rosetta/tools/perl_tools/getFastaFromCoords.pl -pdbfile {p} -chain {c}' \
-            '> fasta'
-
-FIXBB_JD3 = 'mpirun -n 50 /vol/ek/Home/alisa/rosetta/Rosetta/main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
-            ' -database /vol/ek/Home/alisa/rosetta/Rosetta/main/database/ -restore_talaris_behavior' \
+FIXBB_JD3 = 'mpirun -n 50' + ROSETTA_DIR + '/main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
+            ' -database' + ROSETTA_DATABASE + '-restore_talaris_behavior' \
             ' -in:file:job_definition_file {}'
 
-BUILD_PEPTIDE = PATH_TO_ROSETTA + 'main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
+BUILD_PEPTIDE = ROSETTA_DIR + 'main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
                                   ' -database ' + ROSETTA_DATABASE + ' -out:file:o peptide.pdb ' \
                                   '> build_peptide.log'
 
 MAKE_FRAGMENTS = 'perl /vol/ek/share/scripts/global_pep_dock/fragpicker_setup/make_fragments.pl -verbose' \
                  ' -id xxxxx {} 2>log'
-FRAG_PICKER = PATH_TO_ROSETTA + 'main/source/bin/fragment_picker.linuxgccrelease' \
-                                ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
+
+FRAG_PICKER = '/vol/ek/share/rosetta/rosetta_src_2017.45.59812_bundle/main/source/bin/fragment_picker.linuxgccrelease' \
+              ' -database /vol/ek/share/rosetta/rosetta_src_2017.45.59812_bundle/main/database' \
+              ' @flags >makeFrags.log'  # TODO can we change to a newer version and leave an old vall
 
 COPY = 'cp {} {}'
 
@@ -78,7 +71,7 @@ def make_pick_fragments(pep_seq):
                      '#FragmentCrmsd\t30\t0.0\t-\n'
                      '#FragmentAllAtomCrmsd\t20\t0.0\t-')
     with open('flags', 'w') as flags_file:
-        flags_file.write('-in:file:vall\t' + ROSETTA_DIR +
+        flags_file.write('-in:file:vall\t/vol/ek/share/rosetta/'  # TODO change to constant ROSETTA_DIR
                          'rosetta_fragments_latest/nnmake_database/vall.dat.2006-05-05\n'
                          '-in:file:checkpoint\txxxxx.checkpoint\n'
                          '-frags:describe_fragments\tfrags.fsc\n'
@@ -225,11 +218,24 @@ def review_fasta_frag(outfile, sequence):
 #                 else:
 #                     new_pdb.write(line)
 #     os.remove('tmp.pdb')
-def extract_frag(pdb, start, chain, outfile):
+
+
+def extract_frag(pdb, start, end, outfile):
+    with open(outfile, 'w') as frag:
+        with open(pdb, 'r') as full_pdb:
+            cur_line = full_pdb.readline()
+            while cur_line[22:27].strip() != start:
+                cur_line = full_pdb.readline()
+                if not cur_line:
+                    return
+            while cur_line[22:27].strip() != str(int(end) + 1):
+                frag.write(cur_line)
+                cur_line = full_pdb.readline()
+                if not cur_line:
+                    return
 
 
 def process_frags(pep_sequence):
-
     # Open the frags_parameters, extract and append parameters to different lists
     with open('frags_parameters', 'r') as f:
         fragments = f.readlines()
@@ -257,52 +263,53 @@ def process_frags(pep_sequence):
 
     os.chdir('top_50_frags')
 
-    # Fetch PDBs (here done with prody), extract fragments and create resfiles
+    # Fetch PDBs, extract fragments and create resfiles
     for pdb, chain, start, end, sequence in zip(pdbs, chains, start_res, end_res, sequences):
         fragment_name = pdb + '.' + chain + '.' + start + '.' + end
         outfile = fragment_name + '.pdb'
-        pdb_full = pdb + '.pdb'
+        if chain == '_':
+            chain = 'A'
+        os.system(GET_PDB.format(pdb, chain))  # get and clean pdb (only the right chain) + fasta
 
-        os.system(PRODY % pdb)
+        pdb_full = pdb.upper() + '_{}.pdb'.format(chain)
+
+        fasta_name = '{}_{}.fasta'.format(pdb.upper(), chain)
 
         if os.path.exists(pdb_full):
 
-            os.rename(pdb_full, 'tmp.pdb')
-            os.system(SEQUENTIAL_RENUM.format('tmp.pdb', pdb_full))  # Renumber PDB if it doesn't start from 1
-            os.remove('tmp.pdb')
-
-            if chain == '_':
-                chain = 'A'
-
             print("Extracting fragment")
-            os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=start, e=end, o=outfile))
 
+            extract_frag(pdb_full, start, end, outfile)
             is_ok = False
-            if not os.path.exists(outfile) or os.path.getsize(outfile) == 0:
 
+            if not os.path.exists(outfile) or os.path.getsize(outfile) == 0:
                 print("Trying to extract from FASTA")
-                os.system(GET_FASTA.format(p=pdb_full, c=chain))
-                with open('fasta', 'r') as f:
+
+                with open(fasta_name, 'r') as f:
                     fasta = f.read()
-                clean_fasta = fasta[fasta.find('\n'):].replace('\n', '')
+                clean_fasta = fasta[fasta.find('\n') + 1:]
                 fasta_start = clean_fasta.find(sequence) + 1  # +1 because of zero-based numbering
                 if fasta_start == 0:  # -1 would mean 'sequence doesn't exist', but we added 1
                     print("no matching sequence")
                     continue
                 fasta_end = fasta_start + pep_length - 1
-                os.system(EXTRACT_PDB.format(p=pdb_full, c=chain, s=fasta_start, e=fasta_end, o=outfile))
+
+                extract_frag(pdb_full, str(fasta_start), str(fasta_end), outfile)
+
                 is_ok = review_fasta_frag(outfile, sequence)
                 if is_ok:
                     print("success!")
-                    os.remove('fasta')
                 else:
                     print("Failed to extract fragment")
                     os.remove(pdb_full)
-                    os.remove('fasta')
+                    os.remove(fasta_name)
                     continue
             else:
                 is_ok = review_frags(outfile, start, end)
+
             os.remove(pdb_full)
+            os.remove(fasta_name)
+
             if is_ok:
                 cur_dir = os.getcwd()
                 frags_count = len([frag for frag in os.listdir('.') if
@@ -310,7 +317,7 @@ def process_frags(pep_sequence):
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, start, sequence, fragment_name)
                 pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
-                if frags_count >= 51:
+                if frags_count >= 50:
                     print("Got top 50 fragments")
                     break
             else:
@@ -359,12 +366,8 @@ def create_xml(pdb_resfile_dict):
 
 
 def run_fixbb():
-    # os.makedirs('top_50_frags/fixbb')
     os.chdir('top_50_frags/fixbb')
     print("running fixbb design")
-    # for frag in os.listdir('.'):
-    #     resfile_name = 'resfile_' + os.path.splitext(os.path.basename(frag))[0]
-    #     os.system(FIXBB.format(frag, '../../resfiles/' + resfile_name))
     os.system(FIXBB_JD3.format('design.xml'))
     os.chdir('../../')
 
@@ -393,13 +396,13 @@ if __name__ == "__main__":
 
     with open(sys.argv[1], 'r') as peptide:
         peptide_seq = peptide.readline().strip()
-        build_peptide(sys.argv[1])
+
+    build_peptide(sys.argv[1])  # build extended peptide and rename it's chain id to 'B'
 
     pep_length = len(peptide_seq)
+    make_pick_fragments(peptide_seq)
 
-    # make_pick_fragments(peptide_seq)
-
-    # create_params_file(FRAGS_FILE.format(str(pep_length)))
+    create_params_file(FRAGS_FILE.format(str(pep_length)))
 
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
     pdb_and_resfiles = process_frags(peptide_seq)
@@ -413,7 +416,7 @@ if __name__ == "__main__":
     # run PIPER
     # extract top 250 models
 
-      # build extended peptide and change it's chain id to 'B'
+
     # prepack receptor
     # run refinement
     # clustering
