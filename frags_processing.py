@@ -21,7 +21,7 @@ GET_FASTA = 'perl /vol/ek/Home/alisa/rosetta/Rosetta/tools/perl_tools/getFastaFr
             '> fasta'
 
 FIXBB_JD3 = 'mpirun -n 50 /vol/ek/Home/alisa/rosetta/Rosetta/main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
-            ' -database /vol/ek/Home/alisa/rosetta/Rosetta/main/database/' \
+            ' -database /vol/ek/Home/alisa/rosetta/Rosetta/main/database/ -restore_talaris_behavior' \
             ' -in:file:job_definition_file {}'
 
 BUILD_PEPTIDE = PATH_TO_ROSETTA + 'main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
@@ -225,9 +225,10 @@ def review_fasta_frag(outfile, sequence):
 #                 else:
 #                     new_pdb.write(line)
 #     os.remove('tmp.pdb')
+def extract_frag(pdb, start, chain, outfile):
 
 
-def extract_frags(pep_sequence):
+def process_frags(pep_sequence):
 
     # Open the frags_parameters, extract and append parameters to different lists
     with open('frags_parameters', 'r') as f:
@@ -348,9 +349,12 @@ def create_xml(pdb_resfile_dict):
         os.makedirs('top_50_frags/fixbb')
     with open('top_50_frags/fixbb/design.xml', 'w') as xml_file:
         xml_file.write('<JobDefinitionFile>\n')
+        xml_file.write('<Common>\n\t<SCOREFXNS>\n\t\t<ScoreFunction name="Talaris14" weights="talaris2014.wts"/>'
+                       '\n\t</SCOREFXNS>\n</Common>\n')
         for pdb, resfile in pdb_resfile_dict.items():
             xml_file.write(job_string.format(pdb, resfile))
         xml_file.write('</JobDefinitionFile>')
+
     return xml_file
 
 
@@ -389,15 +393,16 @@ if __name__ == "__main__":
 
     with open(sys.argv[1], 'r') as peptide:
         peptide_seq = peptide.readline().strip()
+        build_peptide(sys.argv[1])
 
     pep_length = len(peptide_seq)
 
-    make_pick_fragments(peptide_seq)
+    # make_pick_fragments(peptide_seq)
 
-    create_params_file(FRAGS_FILE.format(str(pep_length)))
+    # create_params_file(FRAGS_FILE.format(str(pep_length)))
 
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
-    pdb_and_resfiles = extract_frags(peptide_seq)
+    pdb_and_resfiles = process_frags(peptide_seq)
 
     xml_design = create_xml(pdb_and_resfiles)  # create xml for running fixbb with RS
 
@@ -408,7 +413,7 @@ if __name__ == "__main__":
     # run PIPER
     # extract top 250 models
 
-    build_peptide(peptide_seq)  # build extended peptide and change it's chain id to 'B'
+      # build extended peptide and change it's chain id to 'B'
     # prepack receptor
     # run refinement
     # clustering
