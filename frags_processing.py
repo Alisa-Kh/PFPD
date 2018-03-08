@@ -3,15 +3,16 @@ import os
 
 # Rosetta directories
 
-ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'
+ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'  # TODO: change to relevant path to Rosetta directory
 
 ROSETTA_DATABASE = ROSETTA_DIR + 'main/database/'
 
 
 # Commands
-GET_PDB = '/vol/ek/Home/alisa/rosetta/Rosetta/tools/protein_tools/scripts/clean_pdb.py {} {}'
+GET_PDB = os.path.join(ROSETTA_DIR, 'tools/protein_tools/scripts/clean_pdb.py {} {}')
 
-FIXBB_JD3 = 'mpirun -n 50' + ROSETTA_DIR + '/main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
+#  TODO: change number of nodes if needed
+FIXBB_JD3 = 'mpirun -n 5 ' + ROSETTA_DIR + 'main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
             ' -database' + ROSETTA_DATABASE + '-restore_talaris_behavior' \
             ' -in:file:job_definition_file {}'
 
@@ -22,9 +23,8 @@ BUILD_PEPTIDE = ROSETTA_DIR + 'main/source/bin/BuildPeptide.linuxgccrelease -in:
 MAKE_FRAGMENTS = 'perl /vol/ek/share/scripts/global_pep_dock/fragpicker_setup/make_fragments.pl -verbose' \
                  ' -id xxxxx {} 2>log'
 
-FRAG_PICKER = '/vol/ek/share/rosetta/rosetta_src_2017.45.59812_bundle/main/source/bin/fragment_picker.linuxgccrelease' \
-              ' -database /vol/ek/share/rosetta/rosetta_src_2017.45.59812_bundle/main/database' \
-              ' @flags >makeFrags.log'  # TODO can we change to a newer version and leave an old vall
+FRAG_PICKER = ROSETTA_DIR + 'main/source/bin/fragment_picker.linuxgccrelease' \
+              ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
 
 COPY = 'cp {} {}'
 
@@ -54,14 +54,15 @@ THREE_TO_ONE_AA = {'G': 'GLY',
 
 
 def make_pick_fragments(pep_seq):
-    frags_dir = 'frag_picker'
+    frags_dir = os.path.join(root, 'frag_picker')
     if not os.path.exists(frags_dir):
         os.makedirs(frags_dir)
-    # os.system(COPY.format('make_fragments.pl', frags_dir))
+    # Create fasta file:
     with open(os.path.join(frags_dir, 'xxxxx.fasta'), 'w') as fasta_file:
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
     os.chdir(frags_dir)
-    os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))
+    os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+    # Create psi_L1.cfg file:
     with open('psi_L1.cfg', 'w') as scores:
         scores.write('#score\tname\tpriority\twght\tmin_allowed\textras\n'
                      'SecondarySimilarity\t350\t2.0\t-\tpsipred\n'
@@ -70,9 +71,10 @@ def make_pick_fragments(pep_seq):
                      '#RamaScore\t100\t6.0\t-\tpsipred\n'
                      '#FragmentCrmsd\t30\t0.0\t-\n'
                      '#FragmentAllAtomCrmsd\t20\t0.0\t-')
+    # Write flags
     with open('flags', 'w') as flags_file:
-        flags_file.write('-in:file:vall\t/vol/ek/share/rosetta/'  # TODO change to constant ROSETTA_DIR
-                         'rosetta_fragments_latest/nnmake_database/vall.dat.2006-05-05\n'
+        flags_file.write('-in:file:vall\t' + ROSETTA_DATABASE + 'sampling/'
+                         'filtered.vall.dat.2006-05-05.gz\n'
                          '-in:file:checkpoint\txxxxx.checkpoint\n'
                          '-frags:describe_fragments\tfrags.fsc\n'
                          '-frags:frag_sizes\t' + str(len(pep_seq)) + '\n'
@@ -87,13 +89,13 @@ def make_pick_fragments(pep_seq):
                          '-mute\tcore.chemical\n'
                          '-mute\tprotocols.jumping')
     os.system(FRAG_PICKER)
-    os.system(COPY.format(FRAGS_FILE.format(pep_length), '../'))
-    os.chdir('../')
+    os.system(COPY.format(FRAGS_FILE.format(pep_length), root))
+    os.chdir(root)
 
 
 def create_params_file(frags):
+    """Read only needed values from frags_file and store them in frags_parameters file"""
 
-    # Read only needed values from frags_file and store them in frags_file_values
     parameters_sets = []
     frags_parameters = open('frags_parameters', 'w+')
     with open(frags) as frags_file:
@@ -125,7 +127,7 @@ def create_params_file(frags):
     frags_parameters.close()
 
 
-def bad_frag(fragment):  # delete bad fragments
+def bad_frag(fragment):  # remove bad fragments
     print("Bad fragment. it will be saved in separate directory 'bad_fragments'")
     if not os.path.exists('bad_fragments'):
         os.makedirs('bad_fragments')
@@ -134,7 +136,7 @@ def bad_frag(fragment):  # delete bad fragments
 
 
 def review_frags(outfile, start, end):
-    # check whether fragment is correct
+    """Check if fragment length is correct and there are no zero occupancy atoms."""
     with open(outfile) as frag:
         residues = set()
         cur_line = frag.readline()
@@ -179,6 +181,7 @@ def review_frags(outfile, start, end):
 
 
 def review_fasta_frag(outfile, sequence):
+    """Review fragments that have different numbering and were extracted with fasta"""
     with open(outfile) as frag:
         residues = ''
         cur_line = frag.readline()
@@ -194,33 +197,9 @@ def review_fasta_frag(outfile, sequence):
             return True
         return False
 
-# def convert_mse_to_met(pdb_full):
-#     file_name = os.path.basename(pdb_full)
-#     os.rename(pdb_full, 'tmp.pdb')
-#     with open(file_name, 'w') as new_pdb:
-#         with open('tmp.pdb') as old_pdb:
-#             for line in old_pdb:
-#                 if 'HETATM' in line:
-#                     if 'MSE' in line:
-#                         editing_line = list(line)
-#                         editing_line[0] = 'A'
-#                         editing_line[1] = 'T'
-#                         editing_line[2] = 'O'
-#                         editing_line[3] = 'M'
-#                         editing_line[4] = ' '
-#                         editing_line[5] = ' '
-#                         editing_line[18] = 'E'
-#                         editing_line[19] = 'T'
-#                         new_line = "".join(editing_line)
-#                         new_pdb.write(new_line)
-#                     else:
-#                         new_pdb.write(line)
-#                 else:
-#                     new_pdb.write(line)
-#     os.remove('tmp.pdb')
-
 
 def extract_frag(pdb, start, end, outfile):
+    """Extract fragment from a full chain"""
     with open(outfile, 'w') as frag:
         with open(pdb, 'r') as full_pdb:
             cur_line = full_pdb.readline()
@@ -236,6 +215,7 @@ def extract_frag(pdb, start, end, outfile):
 
 
 def process_frags(pep_sequence):
+    """"""
     # Open the frags_parameters, extract and append parameters to different lists
     with open('frags_parameters', 'r') as f:
         fragments = f.readlines()
@@ -252,8 +232,9 @@ def process_frags(pep_sequence):
         sequences.append(frag.split()[4])
 
     # create directory for top 50 frags
-    if not os.path.exists('top_50_frags'):
-        os.makedirs('top_50_frags')
+    frags_dir = os.path.join(root, 'top_50_frags')
+    if not os.path.exists(frags_dir):
+        os.makedirs(frags_dir)
 
     # create directory for storing resfiles
     if not os.path.exists('resfiles'):
@@ -280,7 +261,7 @@ def process_frags(pep_sequence):
             print("Extracting fragment")
 
             extract_frag(pdb_full, start, end, outfile)
-            is_ok = False
+            is_frag_ok = False
 
             if not os.path.exists(outfile) or os.path.getsize(outfile) == 0:
                 print("Trying to extract from FASTA")
@@ -296,8 +277,8 @@ def process_frags(pep_sequence):
 
                 extract_frag(pdb_full, str(fasta_start), str(fasta_end), outfile)
 
-                is_ok = review_fasta_frag(outfile, sequence)
-                if is_ok:
+                is_frag_ok = review_fasta_frag(outfile, sequence)
+                if is_frag_ok:
                     print("success!")
                 else:
                     print("Failed to extract fragment")
@@ -305,12 +286,12 @@ def process_frags(pep_sequence):
                     os.remove(fasta_name)
                     continue
             else:
-                is_ok = review_frags(outfile, start, end)
+                is_frag_ok = review_frags(outfile, start, end)
 
             os.remove(pdb_full)
             os.remove(fasta_name)
 
-            if is_ok:
+            if is_frag_ok:
                 cur_dir = os.getcwd()
                 frags_count = len([frag for frag in os.listdir('.') if
                                    os.path.isfile(os.path.join(cur_dir, frag))])
@@ -326,13 +307,13 @@ def process_frags(pep_sequence):
             print("Failed to fetch pdb")  # The PDB could be obsolete
             continue  # if failed to fetch PDB
 
-    os.chdir('../')
+    os.chdir(root)
     return pdb_resfiles_dict
 
 
 def create_resfile(ori_seq, chain, start, sequence, fragment_name):
 
-    path_to_resfile = '../resfiles/resfile_%s'
+    path_to_resfile = os.path.join(root, '/resfiles/resfile_%s')
 
     # Create resfile for each fragment
     resfile = open(path_to_resfile % fragment_name, 'w')
@@ -352,24 +333,24 @@ def create_xml(pdb_resfile_dict):
     job_string = '<Job>\n\t<Input>\n\t\t<PDB filename="../{}"/>\n\t</Input>\n' \
                  '\t<TASKOPERATIONS>\n\t\t<ReadResfile name="read_resfile" filename="../../resfiles/{}"/>\n' \
                  '\t</TASKOPERATIONS>\n</Job>\n'
-    if not os.path.exists('top_50_frags/fixbb'):
-        os.makedirs('top_50_frags/fixbb')
-    with open('top_50_frags/fixbb/design.xml', 'w') as xml_file:
+    path_to_fixbb = os.path.join(root, 'top_50_frags/fixbb')
+    if not os.path.exists(path_to_fixbb):
+        os.makedirs(path_to_fixbb)
+    with open(path_to_fixbb + '/design.xml', 'w') as xml_file:
         xml_file.write('<JobDefinitionFile>\n')
         xml_file.write('<Common>\n\t<SCOREFXNS>\n\t\t<ScoreFunction name="Talaris14" weights="talaris2014.wts"/>'
                        '\n\t</SCOREFXNS>\n</Common>\n')
         for pdb, resfile in pdb_resfile_dict.items():
             xml_file.write(job_string.format(pdb, resfile))
         xml_file.write('</JobDefinitionFile>')
+    return(path_to_fixbb)
 
-    return xml_file
 
-
-def run_fixbb():
-    os.chdir('top_50_frags/fixbb')
+def run_fixbb(path):
+    os.chdir(path)
     print("running fixbb design")
     os.system(FIXBB_JD3.format('design.xml'))
-    os.chdir('../../')
+    os.chdir(root)
 
 
 def build_peptide(pep_seq):
@@ -392,31 +373,36 @@ def build_peptide(pep_seq):
             new_peptide.write(bchain_line)
 
 
-if __name__ == "__main__":
+def run_fragment_generation(peptide_sequence):
 
-    with open(sys.argv[1], 'r') as peptide:
-        peptide_seq = peptide.readline().strip()
-
-    build_peptide(sys.argv[1])  # build extended peptide and rename it's chain id to 'B'
-
-    pep_length = len(peptide_seq)
-    make_pick_fragments(peptide_seq)
+    make_pick_fragments(peptide_sequence)
 
     create_params_file(FRAGS_FILE.format(str(pep_length)))
 
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
     pdb_and_resfiles = process_frags(peptide_seq)
 
-    xml_design = create_xml(pdb_and_resfiles)  # create xml for running fixbb with RS
+    path_to_fixbb = create_xml(pdb_and_resfiles)  # create xml for running fixbb with RS
 
     # run fixbb
-    run_fixbb()
-
-    # preprocessing for PIPER
-    # run PIPER
-    # extract top 250 models
+    run_fixbb(path_to_fixbb)
 
 
-    # prepack receptor
-    # run refinement
-    # clustering
+if __name__ == "__main__":
+
+    with open(sys.argv[1], 'r') as peptide:
+        peptide_seq = peptide.readline().strip()
+
+    root = os.getcwd()
+    pep_length = len(peptide_seq)
+
+    run_fragment_generation(peptide_seq)
+
+    # TODO: preprocessing for PIPER
+    # TODO: run PIPER
+    # TODO: extract top 250 models
+
+    build_peptide(peptide)  # build extended peptide and rename it's chain id to 'B'
+    # TODO: prepack receptor
+    # TODO: run refinement
+    # TODO: clustering
