@@ -5,15 +5,15 @@ import os
 
 ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'  # TODO: change to relevant path to Rosetta directory
 
-ROSETTA_DATABASE = ROSETTA_DIR + 'main/database/'
+ROSETTA_DATABASE = ROSETTA_DIR + 'main/database'
 
 
 # Commands
 GET_PDB = os.path.join(ROSETTA_DIR, 'tools/protein_tools/scripts/clean_pdb.py {} {}')
 
 #  TODO: change number of nodes if needed
-FIXBB_JD3 = 'mpirun -n 5 ' + ROSETTA_DIR + 'main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
-            ' -database' + ROSETTA_DATABASE + '-restore_talaris_behavior' \
+FIXBB_JD3 = 'mpirun -n 6 ' + ROSETTA_DIR + 'main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
+            ' -database ' + ROSETTA_DATABASE + ' -restore_talaris_behavior' \
             ' -in:file:job_definition_file {}'
 
 BUILD_PEPTIDE = ROSETTA_DIR + 'main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
@@ -73,7 +73,7 @@ def make_pick_fragments(pep_seq):
                      '#FragmentAllAtomCrmsd\t20\t0.0\t-')
     # Write flags
     with open('flags', 'w') as flags_file:
-        flags_file.write('-in:file:vall\t' + ROSETTA_DATABASE + 'sampling/'
+        flags_file.write('-in:file:vall\t' + ROSETTA_DATABASE + '/sampling/'
                          'filtered.vall.dat.2006-05-05.gz\n'
                          '-in:file:checkpoint\txxxxx.checkpoint\n'
                          '-frags:describe_fragments\tfrags.fsc\n'
@@ -215,7 +215,7 @@ def extract_frag(pdb, start, end, outfile):
 
 
 def process_frags(pep_sequence):
-    """"""
+
     # Open the frags_parameters, extract and append parameters to different lists
     with open('frags_parameters', 'r') as f:
         fragments = f.readlines()
@@ -250,10 +250,9 @@ def process_frags(pep_sequence):
         outfile = fragment_name + '.pdb'
         if chain == '_':
             chain = 'A'
-        os.system(GET_PDB.format(pdb, chain))  # get and clean pdb (only the right chain) + fasta
+        os.system(GET_PDB.format(pdb, chain))  # get and clean pdb and fasta
 
-        pdb_full = pdb.upper() + '_{}.pdb'.format(chain)
-
+        pdb_full = '{}_{}.pdb'.format(pdb.upper(), chain)
         fasta_name = '{}_{}.fasta'.format(pdb.upper(), chain)
 
         if os.path.exists(pdb_full):
@@ -313,7 +312,7 @@ def process_frags(pep_sequence):
 
 def create_resfile(ori_seq, chain, start, sequence, fragment_name):
 
-    path_to_resfile = os.path.join(root, '/resfiles/resfile_%s')
+    path_to_resfile = os.path.join(root, 'resfiles/resfile_%s')
 
     # Create resfile for each fragment
     resfile = open(path_to_resfile % fragment_name, 'w')
@@ -329,11 +328,10 @@ def create_resfile(ori_seq, chain, start, sequence, fragment_name):
     resfile.close()
 
 
-def create_xml(pdb_resfile_dict):
+def create_xml(pdb_resfile_dict, path_to_fixbb):
     job_string = '<Job>\n\t<Input>\n\t\t<PDB filename="../{}"/>\n\t</Input>\n' \
                  '\t<TASKOPERATIONS>\n\t\t<ReadResfile name="read_resfile" filename="../../resfiles/{}"/>\n' \
                  '\t</TASKOPERATIONS>\n</Job>\n'
-    path_to_fixbb = os.path.join(root, 'top_50_frags/fixbb')
     if not os.path.exists(path_to_fixbb):
         os.makedirs(path_to_fixbb)
     with open(path_to_fixbb + '/design.xml', 'w') as xml_file:
@@ -343,11 +341,10 @@ def create_xml(pdb_resfile_dict):
         for pdb, resfile in pdb_resfile_dict.items():
             xml_file.write(job_string.format(pdb, resfile))
         xml_file.write('</JobDefinitionFile>')
-    return(path_to_fixbb)
 
 
-def run_fixbb(path):
-    os.chdir(path)
+def run_fixbb(path_to_fixbb):
+    os.chdir(path_to_fixbb)
     print("running fixbb design")
     os.system(FIXBB_JD3.format('design.xml'))
     os.chdir(root)
@@ -382,7 +379,9 @@ def run_fragment_generation(peptide_sequence):
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
     pdb_and_resfiles = process_frags(peptide_seq)
 
-    path_to_fixbb = create_xml(pdb_and_resfiles)  # create xml for running fixbb with RS
+    path_to_fixbb = os.path.join(root, 'top_50_frags/fixbb')
+
+    create_xml(pdb_and_resfiles, path_to_fixbb)  # create xml for running fixbb with JD3
 
     # run fixbb
     run_fixbb(path_to_fixbb)
@@ -402,7 +401,7 @@ if __name__ == "__main__":
     # TODO: run PIPER
     # TODO: extract top 250 models
 
-    build_peptide(peptide)  # build extended peptide and rename it's chain id to 'B'
+    build_peptide(sys.argv[1])  # build extended peptide and rename it's chain id to 'B'
     # TODO: prepack receptor
     # TODO: run refinement
     # TODO: clustering
