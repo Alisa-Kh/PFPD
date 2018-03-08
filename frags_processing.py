@@ -1,17 +1,20 @@
+#!/usr/bin/python
+
 import sys
 import os
 
 # Rosetta directories
 
-ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'  # TODO: change to relevant path to Rosetta directory
+##################### Change the ROSETTA_DIR here #####################
+ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'
 
 ROSETTA_DATABASE = ROSETTA_DIR + 'main/database'
 
-
 # Commands
+
 GET_PDB = os.path.join(ROSETTA_DIR, 'tools/protein_tools/scripts/clean_pdb.py {} {}')
 
-#  TODO: change number of nodes if needed
+################## Change number of nodes if needed ####################
 FIXBB_JD3 = 'mpirun -n 6 ' + ROSETTA_DIR + 'main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
             ' -database ' + ROSETTA_DATABASE + ' -restore_talaris_behavior' \
             ' -in:file:job_definition_file {}'
@@ -25,6 +28,9 @@ MAKE_FRAGMENTS = 'perl /vol/ek/share/scripts/global_pep_dock/fragpicker_setup/ma
 
 FRAG_PICKER = ROSETTA_DIR + 'main/source/bin/fragment_picker.linuxgccrelease' \
               ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
+
+PDBPREP = 'perl /vol/ek/share/scripts/global_pep_dock/PIPER/bin/phplibbin/pdbprep.pl {}'
+PDBNMD = 'perl /vol/ek/share/scripts/global_pep_dock/PIPER/bin/phplibbin/pdbnmd.pl "{}"' + ' ?'
 
 COPY = 'cp {} {}'
 
@@ -350,31 +356,72 @@ def run_fixbb(path_to_fixbb):
     os.chdir(root)
 
 
+def rename_chain(structure, chain_id):
+    renamed_struct = []
+    with open(structure, 'r') as pdb:
+        pdb_lines = pdb.readlines()
+    for line in pdb_lines:
+        if line[0:3] == 'TER':
+            break
+        if line[21].isalpha():
+            new_line = list(line)
+            new_line[21] = chain_id
+            renamed_struct.append("".join(new_line))
+    os.remove(structure)
+    with open(structure, 'w') as new_structure:
+        for bchain_line in renamed_struct:
+            new_structure.write(bchain_line)
+
+
+def process_for_piper(fix_bb_dir, pdb_dict, receptor):
+    piper_dir = os.path.join(root, 'PIPER')  # Create directory
+    if not os.path.exists(piper_dir):
+        os.makedirs(piper_dir)
+
+    for frag in os.listdir(fix_bb_dir):
+        if os.path.splitext(frag)[1] == '.pdb':   # Rename chain ID to 'B'
+            rename_chain(os.path.join(fix_bb_dir, frag), 'B')
+            os.system(COPY.format(os.path.join(fix_bb_dir, frag), piper_dir))
+
+    with open(os.path.join(piper_dir, 'runs_list'), 'w') as runs_list:  # Create list 1 - 50
+        for i in range(1, 51):
+            runs_list.write("{:02}\n".format(i))
+
+    # Create symlinks for piper run
+    ligands_dir = os.path.join(piper_dir, 'ligands/')
+    if not os.path.exists(ligands_dir):
+        os.makedirs(ligands_dir)
+    lig_inx = 1
+    for frag_name in pdb_dict.keys():
+        designed_name = frag_name[:-4] + '_0001.pdb'
+        os.system('ln -s {} {}/lig.{:04}.pdb'.format(os.path.join(piper_dir, designed_name), ligands_dir, lig_inx))
+        lig_inx += 1
+
+    # process ligands for PIPER
+    os.chdir(ligands_dir)
+    for lig in os.listdir(ligands_dir):
+        os.system(PDBPREP.format(lig))
+        os.system(PDBNMD.format(lig))
+    os.chdir(piper_dir)
+    # prepare receptor for piper
+    os.system(PDBPREP.format(os.path.join(root, receptor)))
+    os.system(PDBNMD.format(os.path.join(root, receptor)))
+    os.chdir(root)
+
 def build_peptide(pep_seq):
 
     # Build extended peptide
     os.system(BUILD_PEPTIDE.format(pep_seq))
 
     # Change chain ID to 'B'
-    renamed_peptide = []
-    with open('peptide.pdb', 'r') as pep:
-        pdb_lines = pep.readlines()
-    for line in pdb_lines:
-        if line[21].isalpha():
-            new_line = list(line)
-            new_line[21] = 'B'
-            renamed_peptide.append("".join(new_line))
-    os.remove('peptide.pdb')
-    with open('peptide.pdb', 'w') as new_peptide:
-        for bchain_line in renamed_peptide:
-            new_peptide.write(bchain_line)
+    rename_chain('peptide.pdb', 'B')
 
 
-def run_fragment_generation(peptide_sequence):
+def run_protocol(peptide_sequence, receptor):
 
-    make_pick_fragments(peptide_sequence)
+    # make_pick_fragments(peptide_sequence)
 
-    create_params_file(FRAGS_FILE.format(str(pep_length)))
+    # create_params_file(FRAGS_FILE.format(str(pep_length)))
 
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
     pdb_and_resfiles = process_frags(peptide_seq)
@@ -386,6 +433,9 @@ def run_fragment_generation(peptide_sequence):
     # run fixbb
     run_fixbb(path_to_fixbb)
 
+    # process ligands and receptor for piper run
+    process_for_piper(path_to_fixbb, pdb_and_resfiles, receptor)
+
 
 if __name__ == "__main__":
 
@@ -395,9 +445,8 @@ if __name__ == "__main__":
     root = os.getcwd()
     pep_length = len(peptide_seq)
 
-    run_fragment_generation(peptide_seq)
+    run_protocol(peptide_seq, sys.argv[2])
 
-    # TODO: preprocessing for PIPER
     # TODO: run PIPER
     # TODO: extract top 250 models
 
