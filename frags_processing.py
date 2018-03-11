@@ -17,7 +17,7 @@ GET_PDB = os.path.join(ROSETTA_DIR, 'tools/protein_tools/scripts/clean_pdb.py {}
 ################## Change number of nodes if needed ####################
 FIXBB_JD3 = 'mpirun -n 6 ' + ROSETTA_DIR + 'main/source/bin/fixbb_jd3.mpiserialization.linuxgccrelease' \
             ' -database ' + ROSETTA_DATABASE + ' -restore_talaris_behavior' \
-            ' -in:file:job_definition_file {}'
+            ' -in:file:job_definition_file {} > fixbb.log'
 
 BUILD_PEPTIDE = ROSETTA_DIR + 'main/source/bin/BuildPeptide.linuxgccrelease -in:file:fasta {}' \
                                   ' -database ' + ROSETTA_DATABASE + ' -out:file:o peptide.pdb ' \
@@ -361,16 +361,16 @@ def rename_chain(structure, chain_id):
     with open(structure, 'r') as pdb:
         pdb_lines = pdb.readlines()
     for line in pdb_lines:
-        if line[0:3] == 'TER':
-            break
+        if line[0:4] != 'ATOM' and line[0:6] != 'HETATM':
+            continue
         if line[21].isalpha():
             new_line = list(line)
             new_line[21] = chain_id
             renamed_struct.append("".join(new_line))
     os.remove(structure)
     with open(structure, 'w') as new_structure:
-        for bchain_line in renamed_struct:
-            new_structure.write(bchain_line)
+        for new_chain_line in renamed_struct:
+            new_structure.write(new_chain_line)
 
 
 def process_for_piper(fix_bb_dir, pdb_dict, receptor):
@@ -402,11 +402,18 @@ def process_for_piper(fix_bb_dir, pdb_dict, receptor):
     for lig in os.listdir(ligands_dir):
         os.system(PDBPREP.format(lig))
         os.system(PDBNMD.format(lig))
-    os.chdir(piper_dir)
+
     # prepare receptor for piper
-    os.system(PDBPREP.format(os.path.join(root, receptor)))
-    os.system(PDBNMD.format(os.path.join(root, receptor)))
+    os.system(COPY.format(os.path.join(root, receptor), piper_dir))
+    os.chdir(piper_dir)
+
+    rename_chain(receptor, 'A')
+    os.system(PDBPREP.format(receptor))
+    os.system(PDBNMD.format(receptor))
     os.chdir(root)
+
+    return(piper_dir)
+
 
 def build_peptide(pep_seq):
 
@@ -415,6 +422,10 @@ def build_peptide(pep_seq):
 
     # Change chain ID to 'B'
     rename_chain('peptide.pdb', 'B')
+
+
+def run_piper(piper_dir):
+    pass
 
 
 def run_protocol(peptide_sequence, receptor):
@@ -434,7 +445,9 @@ def run_protocol(peptide_sequence, receptor):
     run_fixbb(path_to_fixbb)
 
     # process ligands and receptor for piper run
-    process_for_piper(path_to_fixbb, pdb_and_resfiles, receptor)
+    piper_dir = process_for_piper(path_to_fixbb, pdb_and_resfiles, receptor)
+
+    run_piper(piper_dir)
 
 
 if __name__ == "__main__":
