@@ -373,7 +373,7 @@ def rename_chain(structure, chain_id):
             new_structure.write(new_chain_line)
 
 
-def process_for_piper(fix_bb_dir, pdb_dict, receptor):
+def process_for_piper(fix_bb_dir, pdb_dict):
     piper_dir = os.path.join(root, 'PIPER')  # Create directory
     if not os.path.exists(piper_dir):
         os.makedirs(piper_dir)
@@ -404,15 +404,15 @@ def process_for_piper(fix_bb_dir, pdb_dict, receptor):
         os.system(PDBNMD.format(lig))
 
     # prepare receptor for piper
-    os.system(COPY.format(os.path.join(root, receptor), piper_dir))
+    os.system(COPY.format(receptor, os.path.join(piper_dir)))
     os.chdir(piper_dir)
 
     rename_chain(receptor, 'A')
-    os.system(PDBPREP.format(receptor))
-    os.system(PDBNMD.format(receptor))
+    os.system(PDBPREP.format(os.path.join(piper_dir, 'receptor.pdb')))
+    os.system(PDBNMD.format(os.path.join(piper_dir, 'receptor.pdb')))
     os.chdir(root)
 
-    return(piper_dir)
+    return piper_dir
 
 
 def build_peptide(pep_seq):
@@ -428,7 +428,7 @@ def run_piper(piper_dir):
     pass
 
 
-def run_protocol(peptide_sequence, receptor):
+def run_protocol(peptide_sequence):
 
     # make_pick_fragments(peptide_sequence)
 
@@ -445,7 +445,7 @@ def run_protocol(peptide_sequence, receptor):
     run_fixbb(path_to_fixbb)
 
     # process ligands and receptor for piper run
-    piper_dir = process_for_piper(path_to_fixbb, pdb_and_resfiles, receptor)
+    piper_dir = process_for_piper(path_to_fixbb, pdb_and_resfiles)
 
     run_piper(piper_dir)
 
@@ -458,7 +458,8 @@ if __name__ == "__main__":
     root = os.getcwd()
     pep_length = len(peptide_seq)
 
-    run_protocol(peptide_seq, sys.argv[2])
+    receptor = sys.argv[2]
+    run_protocol(peptide_seq)
 
     # TODO: run PIPER
     # TODO: extract top 250 models
