@@ -31,21 +31,25 @@ MAKE_FRAGMENTS = 'perl /vol/ek/share/scripts/global_pep_dock/fragpicker_setup/ma
 FRAG_PICKER = ROSETTA_DIR + 'main/source/bin/fragment_picker.linuxgccrelease' \
               ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
 
+PREPACK = os.path.join(ROSETTA_DIR, 'main/source/bin/FlexPepDocking.default.linuxgccrelease -database ') +\
+          ROSETTA_DATABASE + ' @prepack_flags >ppk.log'
+
 # Commands (PIPER)
 PDBPREP = 'perl ' + PIPER_DIR + 'bin/phplibbin/pdbprep.pl {}'
 PDBNMD = 'perl ' + PIPER_DIR + 'bin/phplibbin/pdbnmd.pl "{}"' + ' ?'
 
-RUN_PIPER = "job_id_PIPER_dock=`sbatch --mem=1500m --nice=10000 run_piper| awk '{print $NF}' | grep [0-9]`"
+RUN_PIPER = "job_id_PIPER_dock=`sbatch --mem=1500m --nice=10000 run_piper| awk '{print $NF}' | grep [0-9]` && " \
+            "job_id_extraction=$(sbatch --dependency=afterany:$job_id_PIPER_dock --mem-per-cpu=1500m " \
+            "run_extract_decoys)"
 SBATCH_PIPER = '#!/bin/sh\n#SBATCH --ntasks=1\n#SBATCH --time=20:00:00\n#SBATCH --get-user-env\n' + PIPER_DIR +\
         'bin/piper.acpharis.omp.20120803 -vv -c1.0 -k4 --msur_k=1.0 --maskr=1.0 ' \
         '-T FFTW_EXHAUSTIVE -R 70000 -t 1 -p ' + PIPER_DIR + 'prms/atoms.0.0.4.prm.ms.3cap+0.5ace.Hr0rec -f ' \
         + PIPER_DIR + 'prms/coeffs.0.0.4.motif -r ' + PIPER_DIR + 'prms/rot70k.0.0.4.prm {r} {l} >piper.log'
 
-RUN_EXTRACT_DECOYS = 'sbatch --dependency=after:job_id_PIPER_dock --mem-per-cpu=1500m extract_top_decoys'
 SBATCH_EXTRACT_TOP_DECOYS = "#!/bin/sh\n#SBATCH --nodes 1\n#SBATCH --ntasks=1\n#SBATCH --time=10:00:00\n" \
                             "#SBATCH --get-user-env\nfor f in `awk '{print $1}' ft.000.00 | head -250`;" \
-                            "do if [ ! -f {f}.pdb ]; then python" + PIPER_DIR + "/apply_ftresult.py -i $f ft.000.00 "\
-                            + PIPER_DIR + "prms/rot70k.0.0.4.prm {l} --out-prefix $f;fi;done"
+                            "do if [ ! -f {f}.pdb ]; then " + PIPER_DIR + "apply_ftresult.py -i $f ft.000.00 "\
+                            + PIPER_DIR + "prms/rot70k.0.0.4.prm %s --out-prefix $f;fi;done"
 
 
 # Other commands
@@ -433,8 +437,11 @@ def process_for_piper(fix_bb_dir, pdb_dict, receptor):
     os.chdir(root)
 
 
-def build_peptide(pep_seq):
-
+def build_peptide(pep_seq, prepack_dir):
+    """Create directory for prepacking and, extended peptide and change its chain id to 'B'"""
+    if not os.path.exists(prepack_dir):
+        os.makedirs(prepack_dir)
+    os.chdir(prepack_dir)
     # Build extended peptide
     os.system(BUILD_PEPTIDE.format(pep_seq))
 
@@ -451,7 +458,7 @@ def create_batch(receptor, i, piper_dir, script):
             piper.write(SBATCH_PIPER.format(r=rec_name, l=lig_name))
     elif script == 'decoys':
         with open('run_extract_decoys', 'w') as extract_decoys:
-            extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS.format(l=lig_name))
+            extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % lig_name)
 
 
 def run_piper(piper_dir, receptor):
@@ -465,13 +472,56 @@ def run_piper(piper_dir, receptor):
                               'lig.' + "{:04}".format(i) + '_nmin.pdb'))
 
         create_batch(receptor_name, i, piper_dir, 'piper')
-        os.system(RUN_PIPER)
-
-
         create_batch(receptor_name, i, piper_dir, 'decoys')
-        os.system(RUN_EXTRACT_DECOYS)
+        os.system(RUN_PIPER)  # run PIPER docking and extract 250 top decoys
+
         os.chdir(piper_dir)
     os.chdir(root)
+
+
+def create_flags_file(prepack_dir, receptor):
+    with open('prepack_flags', 'w') as flags:
+        flags.write('-s start.pdb\n-out:pdb\n-scorefile ppk.score.sc\n-nstruct 1\n'
+                    '-flexpep_prepack\n-ex1\n-ex2aro\n-use_input_sc\n-unboundrot ' + receptor + '\n'
+                    '-mute protocols.moves.RigidBodyMover\n-mute core.chemical\n'
+                    '-mute core.scoring.etable\n'
+                    '-mute protocols.evalution\n-mute core.pack.rotamer_trials\n'
+                    '-mute protocols.abinitio.FragmentMover\n-mute core.fragment\n'
+                    '-mute protocols.jd2.PDBJobInputter\n')
+
+
+def create_starting_structure(receptor):
+    with open('start.pdb', 'w') as start:
+        with open(receptor, 'r') as rcptr:
+            cur_line = rcptr.readline()
+            while cur_line:
+                if cur_line[0:4] == 'ATOM':
+                    start.write(cur_line)
+                    cur_line = rcptr.readline()
+                elif cur_line[0:6] == 'HETATM':
+                    start.write(cur_line)
+                    cur_line = rcptr.readline()
+                else:
+                    cur_line = rcptr.readline()
+        with open('peptide.pdb', 'r') as peptide:
+            cur_line = peptide.readline()
+            while cur_line:
+                if cur_line[0:4] == 'ATOM':
+                    start.write(cur_line)
+                    cur_line = peptide.readline()
+                elif cur_line[0:6] == 'HETATM':
+                    start.write(cur_line)
+                    cur_line = peptide.readline()
+                else:
+                    cur_line = peptide.readline()
+
+
+def prepack_receptor(prepack_dir, receptor):
+    """Prepack receptor for FlexPepDock run"""
+    os.chdir(prepack_dir)
+    create_starting_structure(receptor)
+    create_flags_file(prepack_dir, receptor)
+    os.system(PREPACK)
 
 
 def run_protocol(peptide_sequence, receptor):
@@ -482,6 +532,7 @@ def run_protocol(peptide_sequence, receptor):
     resfiles_dir = os.path.join(root, 'resfiles')
     fixbb_dir = os.path.join(root, 'top_50_frags/fixbb')
     piper_dir = os.path.join(root, 'piper')
+    prepack_dir = os.path.join(root, 'prepacking')
 
     # make_pick_fragments(peptide_sequence, frag_picker_dir)
     #
@@ -499,9 +550,11 @@ def run_protocol(peptide_sequence, receptor):
     # process_for_piper(fixbb_dir, pdb_and_resfiles, receptor)
 
     # run piper docking and extract top 250 models
-    run_piper(piper_dir, receptor)
+    # run_piper(piper_dir, receptor)
 
-    build_peptide(sys.argv[1])  # build extended peptide and rename it's chain id to 'B'
+    build_peptide(sys.argv[1], prepack_dir)  # build extended peptide and rename it's chain id to 'B'
+
+    prepack_receptor(prepack_dir, receptor)
 
     # TODO: prepack receptor
     # TODO: run refinement
@@ -519,6 +572,3 @@ if __name__ == "__main__":
     receptor_path = os.path.abspath(sys.argv[2])
 
     run_protocol(peptide_seq, receptor_path)
-
-
-
