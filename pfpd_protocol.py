@@ -2,6 +2,7 @@
 
 import sys
 import os
+import time
 
 #########################
 """ Change paths here """
@@ -10,8 +11,8 @@ import os
 ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'
 ROSETTA_2016_DIR = '/vol/ek/share/rosetta/rosetta_src_2016.20.58704_bundle/'
 
-ROSETTA_DATABASE = ROSETTA_DIR + 'main/database'
-ROSETTA_2016_DATABASE = ROSETTA_2016_DIR + 'main/database'
+ROSETTA_DB = ROSETTA_DIR + 'main/database'
+ROSETTA_2016_DB = ROSETTA_2016_DIR + 'main/database'
 
 ROSETTA_BIN = ROSETTA_DIR + 'main/source/bin/'
 ROSETTA_2016_BIN = ROSETTA_2016_DIR + 'main/source/bin/'
@@ -25,7 +26,7 @@ PIPER_BIN = PIPER_DIR + 'bin/'
 
 
 ##################################
-"""DO NOT change the code below"""
+"""DO NOT change these commands"""
 ##################################
 
 # Commands (ROSETTA)
@@ -33,23 +34,30 @@ PIPER_BIN = PIPER_DIR + 'bin/'
 GET_PDB = ROSETTA_TOOLS + 'clean_pdb.py {} {}'
 
 FIXBB_JD3 = 'mpirun -n 6 ' + ROSETTA_BIN + 'fixbb_jd3.mpiserialization.linuxgccrelease' \
-            ' -database ' + ROSETTA_DATABASE + ' -in:file:job_definition_file {} > fixbb.log'
+            ' -database ' + ROSETTA_DB + ' -in:file:job_definition_file {} > fixbb.log'
 FIXBB_JD3_TALARIS = 'mpirun -n 6 ' + ROSETTA_BIN + 'fixbb_jd3.mpiserialization.linuxgccrelease' \
-                     ' -database ' + ROSETTA_DATABASE + ' -restore_talaris_behavior' \
+                     ' -database ' + ROSETTA_DB + ' -restore_talaris_behavior' \
                      ' -in:file:job_definition_file {} > fixbb.log'
 
 BUILD_PEPTIDE = ROSETTA_BIN + 'BuildPeptide.linuxgccrelease -in:file:fasta {}' \
-                ' -database ' + ROSETTA_DATABASE + ' -out:file:o peptide.pdb ' \
+                ' -database ' + ROSETTA_DB + ' -out:file:o peptide.pdb ' \
                 '> build_peptide.log'
 
 MAKE_FRAGMENTS = 'perl ' + MAKE_FRAGMENTS_DIR + 'make_fragments.pl' \
                  ' -verbose -id xxxxx {} 2>log'
 
 FRAG_PICKER = ROSETTA_BIN + 'fragment_picker.linuxgccrelease' \
-              ' -database ' + ROSETTA_DATABASE + ' @flags >makeFrags.log'
+              ' -database ' + ROSETTA_DB + ' @flags >makeFrags.log'
 
-PREPACK = ROSETTA_BIN + 'FlexPepDocking.default.linuxgccrelease -database ' +\
-          ROSETTA_DATABASE + ' @prepack_flags >ppk.log'
+PREPACK = ROSETTA_BIN + 'FlexPepDocking.default.linuxgccrelease -database ' + \
+          ROSETTA_DB + ' @prepack_flags >ppk.log'
+PREPACK_TALARIS = ROSETTA_2016_BIN + 'FlexPepDocking.mpi.linuxgccrelease -database ' + \
+                  ROSETTA_DB + ' @prepack_flags >ppk.log'
+
+FPD_REFINEMENT = 'mpirun ' + ROSETTA_BIN + 'FlexPepDocking.mpi.linuxgccrelease -database' + ROSETTA_DB + \
+                 '@refine_flags >refinement_log'
+FPD_REFINEMENT_TALARIS = 'mpirun ' + ROSETTA_2016_BIN + 'FlexPepDocking.mpi.linuxgccrelease -database' +\
+                         ROSETTA_2016_DB + ' @refine_flags >refinement_log'
 
 # Commands (PIPER)
 
@@ -60,21 +68,40 @@ PIPER_DOCKING = PIPER_BIN + 'piper.acpharis.omp.20120803 -vv -c1.0 -k4 --msur_k=
                 '-T FFTW_EXHAUSTIVE -R 70000 -t 1 -p ' + PIPER_DIR + 'prms/atoms.0.0.4.prm.ms.3cap+0.5ace.Hr0rec -f ' \
                 + PIPER_DIR + 'prms/coeffs.0.0.4.motif -r ' + PIPER_DIR + 'prms/rot70k.0.0.4.prm {r} {l} >piper.log'
 
-########################
-"""WE are using SLURM"""
-########################
+#####################################################################################
+"""WE are using SLURM workload manager. If you are not - change the commands below"""
+#####################################################################################
 
-RUN_PIPER = "job_id_PIPER_dock=`sbatch --mem=1500m --nice=10000 run_piper| awk '{print $NF}' | grep [0-9]` && " \
-            "job_id_extraction=$(sbatch --dependency=afterany:$job_id_PIPER_dock --mem-per-cpu=1500m " \
-            "run_extract_decoys)"
-SBATCH_PIPER = '#!/bin/sh\n#SBATCH --ntasks=1\n#SBATCH --time=20:00:00\n#SBATCH --get-user-env\n'\
+# RUN_PIPER = "job_id_PIPER_dock=`sbatch --mem=1500m --nice=10000 run_piper| awk '{print $NF}' | grep [0-9]` && " \
+#             "job_id_extraction=$(sbatch --dependency=afterany:$job_id_PIPER_dock --mem-per-cpu=1500m " \
+#             "run_extract_decoys)"  # This one will run SBATCH_PIPER and SBATCH_EXTRACT TOP_DECOYS
+
+
+RUN_PIPER_SLURM = 'sbatch --mem=1500m --nice=10000 run_piper'
+
+# This will be created under the name run_piper. PIPER_DOCKING is the only unchangeable command here
+SBATCH_PIPER = '#!/bin/sh\n' \
+               '#SBATCH --ntasks=1\n' \
+               '#SBATCH --time=20:00:00\n' \
+               '#SBATCH --get-user-env\n'\
                + PIPER_DOCKING
+APPLY_FTRESULTS = 'python' + PIPER_DIR + 'apply_ftresults.py -i {model} ft.000.00 ' \
+                  + PIPER_DIR + 'prms/rot70k.0.0.4.prm {lig} --out-prefix {out}'
 
-SBATCH_EXTRACT_TOP_DECOYS = "#!/bin/sh\n#SBATCH --nodes 1\n#SBATCH --ntasks=1\n#SBATCH --time=10:00:00\n" \
-                            "#SBATCH --get-user-env\nfor f in `awk '{print $1}' ft.000.00 | head -250`;" \
-                            "do if [ ! -f {f}.pdb ]; then " + PIPER_DIR + "apply_ftresult.py -i $f ft.000.00 "\
-                            + PIPER_DIR + "prms/rot70k.0.0.4.prm %s --out-prefix $f;fi;done"
 
+# SBATCH_EXTRACT_TOP_DECOYS = "#!/bin/sh\n#SBATCH --nodes 1\n#SBATCH --ntasks=1\n#SBATCH --time=10:00:00\n" \
+#                             "#SBATCH --get-user-env\nfor f in `awk '{print $1}' ft.000.00 | head -250`;" \
+#                             "do if [ ! -f {f}.pdb ]; then " + PIPER_DIR + "apply_ftresult.py -i $f ft.000.00 "\
+#                             + PIPER_DIR + "prms/rot70k.0.0.4.prm %s --out-prefix $f;fi;done"
+
+RUN_FPD_SLURM = 'sbatch --mem-per-cpu=1600m run_refinement'
+SBATCH_FPD = '#!/bin/bash\n' \
+             '#SBATCH --ntasks=300\n' \
+             '#SBATCH --time=50:00:00\n' \
+             '#SBATCH --get-user-env\n' \
+
+
+#######################################################################################
 
 # Other commands
 
@@ -105,12 +132,13 @@ THREE_TO_ONE_AA = {'G': 'GLY',
                    'E': 'GLU'}
 
 
-##################################################
-"""In the next 2 functions flags can be changed"""
-##################################################
+######################################################################
+"""It is not recommended to change the flags, unless you know what you 
+ are doing. If you do, flags can be changed in the next 2 functions"""
+######################################################################
 
 
-def make_pick_fragments(pep_seq, frag_picker_dir):
+def make_pick_fragments(pep_seq):
     """Run fragment picker"""
 
     if not os.path.exists(frag_picker_dir):
@@ -127,7 +155,7 @@ def make_pick_fragments(pep_seq, frag_picker_dir):
                      'ProfileScoreL1\t200\t1.0\t-\n')
     # Write flags
     with open('flags', 'w') as flags_file:
-        flags_file.write('-in:file:vall\t' + ROSETTA_DATABASE + '/sampling/'
+        flags_file.write('-in:file:vall\t' + ROSETTA_DB + '/sampling/'
                          'filtered.vall.dat.2006-05-05.gz\n'
                          '-in:file:checkpoint\txxxxx.checkpoint\n'
                          '-frags:describe_fragments\tfrags.fsc\n'
@@ -149,18 +177,57 @@ def make_pick_fragments(pep_seq, frag_picker_dir):
 
 def prepack_flags_file(receptor):
     with open('prepack_flags', 'w') as flags:
-        flags.write('-s start.pdb\n-out:pdb\n-scorefile ppk.score.sc\n-nstruct 1\n'
-                    '-flexpep_prepack\n-ex1\n-ex2aro\n-use_input_sc\n-unboundrot ' + receptor + '\n'
-                    '-mute protocols.moves.RigidBodyMover\n-mute core.chemical\n'
+        flags.write('-s start.pdb\n'
+                    '-out:pdb\n'
+                    '-scorefile ppk.score.sc\n'
+                    '-nstruct 1\n'
+                    '-flexpep_prepack\n'
+                    '-ex1\n'
+                    '-ex2aro\n'
+                    '-use_input_sc\n'
+                    '-unboundrot ' + receptor + '\n'
+                    '-mute protocols.moves.RigidBodyMover\n'
+                    '-mute core.chemical\n'
                     '-mute core.scoring.etable\n'
-                    '-mute protocols.evalution\n-mute core.pack.rotamer_trials\n'
-                    '-mute protocols.abinitio.FragmentMover\n-mute core.fragment\n'
+                    '-mute protocols.evalution\n'
+                    '-mute core.pack.rotamer_trials\n'
+                    '-mute protocols.abinitio.FragmentMover\n'
+                    '-mute core.fragment\n'
                     '-mute protocols.jd2.PDBJobInputter\n')
+
+
+def refine_flags_file():
+    with open('refine_flags', 'w') as flags:
+        flags.write('-in:file:l input_list\n'
+                    '-scorefile score.sc\n'
+                    '-out:pdb_gz\n'
+                    '-out:file:silent_struct_type binary\n'
+                    '-out:file:silent decoys.silent\n'
+                    '-min_receptor_bb\n'
+                    '-lowres_preoptimize\n'
+                    '-flexPepDocking:pep_refine\n'
+                    '-flexPepDocking:flexpep_score_only\n'
+                    '-ex1\n'
+                    '-ex2aro\n'
+                    '-use_input_sc\n'
+                    '-unboundrot receptor.pdb\n'
+                    '-mute protocols.moves.RigidBodyMover\n'
+                    '-mute core.chemical\n'
+                    '-mute core.scoring.etable\n'
+                    '-mute protocols.evalution\n'
+                    '-mute core.pack.rotamer_trials\n'
+                    '-mute protocols.abinitio.FragmentMover\n'
+                    '-mute core.fragment\n'
+                    '-mute protocols.jd2.PDBJobInputter')
 
 
 ######################################
 """End of flags creating functions"""
 ######################################
+
+################################################
+"""ATTENTION! Do not change the code below!!!"""
+################################################
 
 
 def create_params_file(frags):
@@ -287,7 +354,7 @@ def extract_frag(pdb, start, end, outfile):
                     return
 
 
-def process_frags(pep_sequence, frags_dir, res_dir):
+def process_frags(pep_sequence):
 
     # Open the frags_parameters, extract and append parameters to different lists
     with open('frags_parameters', 'r') as f:
@@ -305,12 +372,12 @@ def process_frags(pep_sequence, frags_dir, res_dir):
         sequences.append(frag.split()[4])
 
     # create directory for top 50 frags
-    if not os.path.exists(frags_dir):
-        os.makedirs(frags_dir)
+    if not os.path.exists(fragments_dir):
+        os.makedirs(fragments_dir)
 
     # create directory for storing resfiles
-    if not os.path.exists(res_dir):
-        os.makedirs(res_dir)
+    if not os.path.exists(resfiles_dir):
+        os.makedirs(resfiles_dir)
 
     pdb_resfiles_dict = dict()  # names of pdbs and their resfiles
 
@@ -367,7 +434,7 @@ def process_frags(pep_sequence, frags_dir, res_dir):
                 frags_count = len([frag for frag in os.listdir('.') if
                                    os.path.isfile(os.path.join(cur_dir, frag))])
                 print("creating resfile")
-                create_resfile(pep_sequence, chain, start, sequence, fragment_name, res_dir)
+                create_resfile(pep_sequence, chain, start, sequence, fragment_name)
                 pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
                 if frags_count >= 50:
                     print("Got top 50 fragments")
@@ -382,9 +449,9 @@ def process_frags(pep_sequence, frags_dir, res_dir):
     return pdb_resfiles_dict
 
 
-def create_resfile(ori_seq, chain, start, sequence, fragment_name, res_dir):
+def create_resfile(ori_seq, chain, start, sequence, fragment_name):
 
-    cur_resfile = os.path.join(res_dir, 'resfile_%s')
+    cur_resfile = os.path.join(resfiles_dir, 'resfile_%s')
     # Create resfile for each fragment
     resfile = open(cur_resfile % fragment_name, 'w')
     resfile.write('NATRO\nstart')
@@ -399,26 +466,37 @@ def create_resfile(ori_seq, chain, start, sequence, fragment_name, res_dir):
     resfile.close()
 
 
-def create_xml(pdb_resfile_dict, path_to_fixbb, talaris):
-    job_string = '<Job>\n\t<Input>\n\t\t<PDB filename="../{}"/>\n\t</Input>\n' \
-                 '\t<TASKOPERATIONS>\n\t\t<ReadResfile name="read_resfile" filename="../../resfiles/{}"/>\n' \
-                 '\t</TASKOPERATIONS>\n</Job>\n'
-    if not os.path.exists(path_to_fixbb):
-        os.makedirs(path_to_fixbb)
-    with open(path_to_fixbb + '/design.xml', 'w') as xml_file:
+def create_xml(pdb_resfile_dict):
+    job_string = '<Job>\n' \
+                 '\t<Input>\n' \
+                 '\t\t<PDB filename="../{}"/>\n' \
+                 '\t</Input>\n' \
+                 '\t<TASKOPERATIONS>\n' \
+                 '\t\t<ReadResfile name="read_resfile" filename="../../resfiles/{}"/>\n' \
+                 '\t</TASKOPERATIONS>\n' \
+                 '</Job>\n'
+    if not os.path.exists(fixbb_dir):
+        os.makedirs(fixbb_dir)
+    with open(fixbb_dir + '/design.xml', 'w') as xml_file:
         xml_file.write('<JobDefinitionFile>\n')
         if talaris:
-            xml_file.write('<Common>\n\t<SCOREFXNS>\n\t\t<ScoreFunction name="Talaris14" weights="talaris2014.wts"/>'
-                           '\n\t</SCOREFXNS>\n</Common>\n')
+            xml_file.write('<Common>\n'
+                           '\t<SCOREFXNS>\n'
+                           '\t\t<ScoreFunction name="Talaris14" weights="talaris2014.wts"/>\n'
+                           '\t</SCOREFXNS>\n'
+                           '</Common>\n')
         for pdb, resfile in pdb_resfile_dict.items():
             xml_file.write(job_string.format(pdb, resfile))
         xml_file.write('</JobDefinitionFile>')
 
 
-def run_fixbb(path_to_fixbb, talaris):
-    os.chdir(path_to_fixbb)
+def run_fixbb():
+    os.chdir(fixbb_dir)
     print("running fixbb design")
-    os.system(FIXBB_JD3.format('design.xml'))
+    if talaris:
+        os.system(FIXBB_JD3_TALARIS.format('design.xml'))
+    else:
+        os.system(FIXBB_JD3.format('design.xml'))
     os.chdir(root)
 
 
@@ -439,15 +517,15 @@ def rename_chain(structure, chain_id):
             new_structure.write(new_chain_line)
 
 
-def process_for_piper(fix_bb_dir, pdb_dict, receptor):
-    piper_dir = os.path.join(root, 'piper')  # Create directory
+def process_for_piper(pdb_dict, receptor):
+    # Create directory
     if not os.path.exists(piper_dir):
         os.makedirs(piper_dir)
 
-    for frag in os.listdir(fix_bb_dir):
+    for frag in os.listdir(fixbb_dir):
         if os.path.splitext(frag)[1] == '.pdb':   # Rename chain ID to 'B'
-            rename_chain(os.path.join(fix_bb_dir, frag), 'B')
-            os.system(COPY.format(os.path.join(fix_bb_dir, frag), piper_dir))
+            rename_chain(os.path.join(fixbb_dir, frag), 'B')
+            os.system(COPY.format(os.path.join(fixbb_dir, frag), piper_dir))
 
     with open(os.path.join(piper_dir, 'runs_list'), 'w') as runs_list:  # Create list 1 - 50
         for i in range(1, 51):
@@ -479,7 +557,7 @@ def process_for_piper(fix_bb_dir, pdb_dict, receptor):
     os.chdir(root)
 
 
-def build_peptide(pep_seq, prepack_dir):
+def build_peptide(pep_seq):
     """Create directory for prepacking and, extended peptide and change its chain id to 'B'"""
     if not os.path.exists(prepack_dir):
         os.makedirs(prepack_dir)
@@ -491,75 +569,167 @@ def build_peptide(pep_seq, prepack_dir):
     rename_chain('peptide.pdb', 'B')
 
 
-def create_batch(receptor, i, piper_dir, script):
+def create_batch(receptor, i, script):
     rec_name = os.path.join(piper_dir, receptor + '_nmin.pdb')
     lig_name = 'lig.' + "{:04}".format(i) + '_nmin.pdb'
 
     if script == 'piper':
         with open('run_piper', 'w') as piper:
             piper.write(SBATCH_PIPER.format(r=rec_name, l=lig_name))
-    elif script == 'decoys':
-        with open('run_extract_decoys', 'w') as extract_decoys:
-            extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % lig_name)
+    # elif script == 'decoys':
+    #     with open('run_extract_decoys', 'w') as extract_decoys:
+    #         extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % lig_name)
 
 
-def run_piper(piper_dir, receptor):
+def run_piper_fpd(receptor):
     os.chdir(piper_dir)
     receptor_base = os.path.basename(receptor)
     receptor_name = os.path.splitext(receptor_base)[0]
+    list_of_runs = []
     for i in range(1, 51):
-        os.makedirs("{:02}".format(i))
-        os.chdir("{:02}".format(i))
+        run_dir = "{:02}".format(i)
+        os.makedirs(run_dir)
+        list_of_runs.append(os.path.basename(run_dir))
+        os.chdir(run_dir)
         os.system(COPY.format(os.path.join(piper_dir, 'ligands', 'lig.' + "{:04}".format(i) + '_nmin.pdb'),
                               'lig.' + "{:04}".format(i) + '_nmin.pdb'))
 
-        create_batch(receptor_name, i, piper_dir, 'piper')
-        create_batch(receptor_name, i, piper_dir, 'decoys')
-        os.system(RUN_PIPER)  # run PIPER docking and extract 250 top decoys
-
+        create_batch(receptor_name, i, 'piper')
+        # create_batch(receptor_name, i, 'decoys')
+        os.system(RUN_PIPER_SLURM)  # run PIPER docking and extract 250 top decoys
         os.chdir(piper_dir)
+    list_of_runs = list(range(1, 51))
+    while len(list_of_runs) > 0:
+        for results_dir in os.listdir(piper_dir):
+            if os.path.basename(results_dir) in list_of_runs:
+                os.chdir(results_dir)
+                if os.path.exists('ft.000.00'):
+                    with open('ft.000.00') as trans_rot_file:
+                        for line in trans_rot_file:
+                            os.system(APPLY_FTRESULTS.format(model=line.split()[0],
+                                                             lig='lig.*.pdb', out=line.split()[0]))
+                            list_of_runs.remove(os.path.basename(results_dir))
+                            run_refinement(results_dir, line.split()[0])
+                            os.chdir(piper_dir)
+
+                else:
+                    os.chdir(piper_dir)
+                    time.sleep(3)
+                    continue
     os.chdir(root)
 
 
-def create_starting_structure(receptor):
-    with open('start.pdb', 'w') as start:
+def combine_receptor_peptide(receptor, ligand, out):
+    """Put together receptor and ligand"""
+    with open(out, 'w') as combined:
         with open(receptor, 'r') as rcptr:
-            cur_line = rcptr.readline()
-            while cur_line:
-                if cur_line[0:4] == 'ATOM':
-                    start.write(cur_line)
-                    cur_line = rcptr.readline()
-                elif cur_line[0:6] == 'HETATM':
-                    start.write(cur_line)
-                    cur_line = rcptr.readline()
-                else:
-                    cur_line = rcptr.readline()
-        with open('peptide.pdb', 'r') as peptide:
-            cur_line = peptide.readline()
-            while cur_line:
-                if cur_line[0:4] == 'ATOM':
-                    start.write(cur_line)
-                    cur_line = peptide.readline()
-                elif cur_line[0:6] == 'HETATM':
-                    start.write(cur_line)
-                    cur_line = peptide.readline()
-                else:
-                    cur_line = peptide.readline()
+            for line in rcptr:
+                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
+                    combined.write(line)
+        with open(ligand, 'r') as lig:
+            for line in lig:
+                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
+                    combined.write(line)
 
 
-def prepack_receptor(prepack_dir, receptor):
+def prepack_receptor(receptor):
     """Prepack receptor for FlexPepDock run"""
+    print("Prepacking receptor")
     os.chdir(prepack_dir)
-    create_starting_structure(receptor)
+    combine_receptor_peptide(receptor, os.path.join(root, sys.argv[1]), 'start.pdb')
     prepack_flags_file(receptor)
-    os.system(PREPACK)
+    if talaris:
+        os.system(PREPACK_TALARIS)
+    else:
+        os.system(PREPACK)
+    ppk_receptor = os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb'
+    with open(ppk_receptor, 'w') as new:
+        with open('start_0001.pdb', 'r') as start:
+            for line in start:
+                if line[21] == 'A':
+                    if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
+                        new.write(line)
+                else:
+                    break
+    print("Prepack done!")
 
 
-def run_refinement():
-    pass
+def prepare_fpd_input(ppk_receptor, output):
+    """For each model in current dir replace receptor with prepacked one"""
+    list_of_models = []
+    for model in os.listdir('.'):
+        if os.path.splitext(model)[1] == '.pdb':
+            combine_receptor_peptide(ppk_receptor, model, output)
+            os.system('gzip ' + output)
+            list_of_models.append(output + '.gz')
+    return list_of_models
+
+
+def run_refinement(run_num, model_num):
+    """Prepare fpd input: replace receptor in piper models with prepacked one, create .gz files,
+    create refinement flags, run refinement"""
+    if not os.path.exists(refinement_dir):
+        os.makedirs(refinement_dir)
+    ppk_receptor = os.path.join(prepack_dir, 'start')
+    # Here receptor will be replaced with prepacked one and input .gz files created
+    input_list = prepare_fpd_input(ppk_receptor, os.path.join(refinement_dir, run_num + '.' + model_num))
+    os.chdir(refinement_dir)
+    with open('input_list', 'w') as i_list:
+        for model in input_list:
+            i_list.write(model + '\n')
+    refine_flags_file()
+    if talaris:
+        os.system(FPD_REFINEMENT_TALARIS)
+    else:
+        os.system(FPD_REFINEMENT)
 
 
 def run_protocol(peptide_sequence, receptor):
+
+    make_pick_fragments(peptide_sequence)
+
+    create_params_file(FRAGS_FILE.format(str(pep_length)))
+
+    # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
+    pdb_and_resfiles = process_frags(peptide_seq)
+
+    create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
+
+    # run fixbb
+    run_fixbb()
+
+    # process ligands and receptor for piper run
+    process_for_piper(pdb_and_resfiles, receptor)
+
+    build_peptide(sys.argv[1])  # build extended peptide and rename it's chain id to 'B'
+
+    prepack_receptor(receptor)
+
+    # run piper docking and extract top 250 models
+    run_piper_fpd(receptor)
+
+    # TODO: clustering
+
+
+if __name__ == "__main__":
+
+    if len(sys.argv) < 3:
+        print('Usage: \n [receptor.pdb] [peptide_sequence] optional: [restore_talaris_behaviour]'
+              '\n You need to provide a pdb file for receptor and a text file with peptide sequence '
+              '(up to 15 amino acids)\n'
+              'If you want to run it with talaris2014, add "restore_talaris_behaviour" option and make'
+              ' sure you have both 2016 and 2018 versions of Rosetta')
+        sys.exit()
+
+    if len(sys.argv) == 4 and sys.argv[3] == 'restore_talaris_behaviour':
+        talaris = True
+    else:
+        talaris = False
+
+    with open(sys.argv[2], 'r') as peptide:
+        peptide_seq = peptide.readline().strip()
+
+    root = os.getcwd()
 
     # Define all the directories that will be created:
     frag_picker_dir = os.path.join(root, 'frag_picker')
@@ -568,54 +738,10 @@ def run_protocol(peptide_sequence, receptor):
     fixbb_dir = os.path.join(root, 'top_50_frags/fixbb')
     piper_dir = os.path.join(root, 'piper')
     prepack_dir = os.path.join(root, 'prepacking')
+    refinement_dir = os.path.join(root, 'refinement')
 
-    make_pick_fragments(peptide_sequence, frag_picker_dir)
-
-    create_params_file(FRAGS_FILE.format(str(pep_length)))
-
-    # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
-    pdb_and_resfiles = process_frags(peptide_seq, fragments_dir, resfiles_dir)
-
-    create_xml(pdb_and_resfiles, fixbb_dir, talaris)  # create xml for running fixbb with JD3
-
-    # run fixbb
-    run_fixbb(fixbb_dir, talaris)
-
-    # process ligands and receptor for piper run
-    process_for_piper(fixbb_dir, pdb_and_resfiles, receptor)
-
-    # run piper docking and extract top 250 models
-    run_piper(piper_dir, receptor)
-
-    build_peptide(sys.argv[1], prepack_dir)  # build extended peptide and rename it's chain id to 'B'
-
-    prepack_receptor(prepack_dir, receptor)  # TODO: change score function for prepack
-
-    run_refinement()
-    # TODO: run refinement
-    # TODO: clustering
-
-
-if __name__ == "__main__":
-
-    if len(sys.argv) < 2 or sys.argv[3] != 'restore_talaris_behaviour':
-        print('Usage: \n [receptor.pdb] [peptide_sequence] optional: [restore_talaris_behaviour]'
-              '\n You need to provide a pdb file for receptor and a text file with peptide sequence '
-              '(up to 15 amino acids)\n'
-              'If you want to run it with talaris2014, add "restore_talaris_behaviour" option and make'
-              ' sure you have both 2016 and 2018 versions of Rosetta')
-
-    if sys.argv[3] == 'restore_talaris_behaviour':
-        talaris = True
-    else:
-        talaris = False
-
-    with open(sys.argv[1], 'r') as peptide:
-        peptide_seq = peptide.readline().strip()
-
-    root = os.getcwd()
     pep_length = len(peptide_seq)
 
-    receptor_path = os.path.abspath(sys.argv[2])
+    receptor_path = os.path.abspath(sys.argv[1])
 
     run_protocol(peptide_seq, receptor_path)
