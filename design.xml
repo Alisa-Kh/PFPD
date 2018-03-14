@@ -1,5 +1,0 @@
-<ROSETTASCRIPTS>
-    <TASKOPERATIONS>
-        <ReadResfile name="rrf" filename="%resfile%" />
-    </TASKOPERATIONS>
-</ROSETTASCRIPTS>
