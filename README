@@ -1,0 +1,12 @@
+This script runs full PIPER-FlexPepDock protocol. The script uses Rosetta version: 2018.07, which
+is relying om ref2015 score function. To restore the protocol published in
+http://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1005905#sec030
+add -restore_talaris_behaviour_flag and you will need new Rosetta version as well as Rosetta 2016.20 release
+
+For running jd3_fixbb_design you will need to build Rosetta in MPI and serialization:
+scons bin mode=release extras=mpi,serialization
+
+######################## I DON'T LIKE IT #######################
+We also provide an old version of make_fragments.pl script which works with this protocol,
+and you will ned to define it's local directory at the top of the script along with the other paths.
+
