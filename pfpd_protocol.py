@@ -2,7 +2,6 @@
 
 import sys
 import os
-import time
 
 #########################
 """ Change paths here """
@@ -145,7 +144,6 @@ THREE_TO_ONE_AA = {'G': 'GLY',
                    'R': 'ARG',
                    'D': 'ASP',
                    'E': 'GLU'}
-
 
 ######################################################################
 """It is not recommended to change the flags, unless you know what you 
@@ -615,31 +613,6 @@ def run_piper_fpd(receptor):
         create_batch(receptor_name, i, 'refinement')
         os.system(RUN_PIPER_FPD)  # run PIPER docking, extract 250 top decoys, run refinement and clustering
         os.chdir(piper_dir)
-    # while len(list_of_runs) > 0:
-    #     for results_dir in os.listdir(piper_dir):
-    #         if os.path.basename(results_dir) in list_of_runs:
-    #             os.chdir(results_dir)
-    #             if os.path.exists('ft.000.00'):
-    #                 with open('ft.000.00') as trans_rot_file:
-    #                     i = 1
-    #                     for line in trans_rot_file:
-    #                         piper_model = line.split()[0]
-    #                         os.system(APPLY_FTRESULTS.format(model=piper_model,
-    #                                                          lig='lig.*.pdb', out=line.split()[0]))
-    #                         if i >= 250:
-    #                             break
-    #                         i += 1
-    #                     input_list = prepare_fpd_input(receptor,
-    #                                                    os.path.join(refinement_dir, os.path.basename(results_dir) +
-    #                                                                 '.' + piper_dir))
-    #                     run_refinement(input_list)
-    #                     list_of_runs.remove(os.path.basename(results_dir))
-    #                     os.chdir(piper_dir)
-    #
-    #             else:
-    #                 os.chdir(piper_dir)
-    #                 time.sleep(3)
-    #                 continue
     os.chdir(root)
 
 
@@ -677,55 +650,27 @@ def prepack_receptor(receptor):
                     continue
     print("Prepack done!")
 
-# def prepare_fpd_input(receptor, output):
-#     """For each model in current dir replace receptor with prepacked one"""
-#     list_of_models = []  # Here store all the names of the models for fpd run
-#     if not os.path.exists(refinement_dir):  # Create directory for FPD
-#         os.makedirs(refinement_dir)
-#     os.chdir(refinement_dir)  # Enter the directory
-#     # Define a name of prepacked repceptor
-#     ppk_receptor = os.path.join(prepack_dir, os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb')
-#     for model in os.listdir('.'):
-#         if os.path.splitext(model)[1] == '.pdb':
-#             combine_receptor_peptide(ppk_receptor, model, output)
-#             os.system('gzip ' + output)
-#             list_of_models.append(output + '.gz')
-#     return list_of_models
-
-
-# def run_refinement(input_list):
-#     """Prepare fpd input: replace receptor in piper models with prepacked one, create .gz files,
-#     create refinement flags, run refinement"""
-#     with open('input_list', 'w') as i_list:
-#         for model in input_list:
-#             i_list.write(model + '\n')
-#     refine_flags_file()
-#     if talaris:
-#         os.system(FPD_REFINEMENT_TALARIS)
-#     else:
-#         os.system(FPD_REFINEMENT)
-
 
 def run_protocol(peptide_sequence, receptor):
 
-    # make_pick_fragments(peptide_sequence)
-    #
-    # create_params_file(FRAGS_FILE.format(str(pep_length)))
-    #
-    # # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
-    # pdb_and_resfiles = process_frags(peptide_seq)
-    #
-    # create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
-    #
-    # # run fixbb
-    # run_fixbb()
-    #
-    # # process ligands and receptor for piper run
-    # process_for_piper(pdb_and_resfiles, receptor)
-    #
-    # build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
-    #
-    # prepack_receptor(receptor)
+    make_pick_fragments(peptide_sequence)
+
+    create_params_file(FRAGS_FILE.format(str(pep_length)))
+
+    # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
+    pdb_and_resfiles = process_frags(peptide_seq)
+
+    create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
+
+    # run fixbb
+    run_fixbb()
+
+    # process ligands and receptor for piper run
+    process_for_piper(pdb_and_resfiles, receptor)
+
+    build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
+
+    prepack_receptor(receptor)
 
     # run piper docking and extract top 250 models
     run_piper_fpd(receptor)
