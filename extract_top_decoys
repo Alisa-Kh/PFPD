@@ -1,0 +1,68 @@
+
+Run PIPER:
+sbatch piper_id=
+
+#!/bin/sh
+#SBATCH --ntasks=1
+#SBATCH --time=20:00:00
+#SBATCH --get-user-env
+
+/vol/ek/share/scripts/global_pep_dock/PIPER/bin/piper.acpharis.omp.20120803 -vv -c1.0 -k4 --msur_k=1.0 --maskr=1.0 -T FFTW_EXHAUSTIVE -R 70000 -t 1 -p /vol/ek/share/scripts/global_pep_dock/PIPER/prms/atoms.0.0.4.prm.ms.3cap+0.5ace.Hr0rec -f /vol/ek/share/scripts/global_pep_dock/PIPER/prms/coeffs.0.0.4.motif -r /vol/ek/share/scripts/global_pep_dock/PIPER/prms/rot70k.0.0.4.prm receptor_nmin.pdb lig.*nmin.pdb >piper.log
+
+Extract decoys:
+
+sbatch  --dependency=afterany:$job_id_PIPER_dock --mem-per-cpu=1500m extract_top_decoys_picasso
+
+#!/bin/sh
+#SBATCH --nodes 1
+#SBATCH --ntasks=1
+#SBATCH --time=10:00:00
+#SBATCH --get-user-env
+
+for f in `awk '{print $1}' ft.000.00 | head -250`;do if [ ! -f {f}.pdb ];
+then python apply_ftresult.py -i $f ft.000.00
+/vol/ek/share/scripts/global_pep_dock/PIPER/prms/rot70k.0.0.4.prm lig.*_nmin.pdb --out-prefix $f;fi;done
+
+
+Prepare fpd input:
+
+#!/bin/sh
+#SBATCH --ntasks=1
+#SBATCH --time=10:00:00
+#SBATCH --get-user-env
+
+piper_run=`pwd | awk -F'/' '{print $NF}'`
+for f in `ls [0-9]*.pdb`;do cat ../../../prepacking/receptor.ppk.pdb ${f} |
+grep ATOM >../../FlexPepDock_Refinement/${piper_run}.${f};gzip ../../FlexPepDock_Refinement/${piper_run}.${f};done
+
+folder_name(num).piper_model_num.pdb.gz
+
+
+Create flags:
+
+-in:file:l list
+-scorefile score.sc
+
+-out:pdb_gz
+-out:file:silent_struct_type binary
+-out:file:silent decoys.silent
+
+-min_receptor_bb
+
+-lowres_preoptimize
+-flexPepDocking:pep_refine
+-flexPepDocking:flexpep_score_only
+
+-ex1
+-ex2aro
+-use_input_sc
+-unboundrot receptor.pdb
+
+-mute protocols.moves.RigidBodyMover
+-mute core.chemical
+-mute core.scoring.etable
+-mute protocols.evalution
+-mute core.pack.rotamer_trials
+-mute protocols.abinitio.FragmentMover
+-mute core.fragment
+-mute protocols.jd2.PDBJobInputter
