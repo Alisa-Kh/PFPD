@@ -72,11 +72,6 @@ PIPER_DOCKING = PIPER_BIN + 'piper.acpharis.omp.20120803 -vv -c1.0 -k4 --msur_k=
 """WE are using SLURM workload manager. If you are not - change the commands below"""
 #####################################################################################
 
-# RUN_PIPER = "job_id_PIPER_dock=`sbatch --mem=1500m --nice=10000 run_piper| awk '{print $NF}' | grep [0-9]` && " \
-#             "job_id_extraction=$(sbatch --dependency=afterany:$job_id_PIPER_dock --mem-per-cpu=1500m " \
-#             "run_extract_decoys)"  # This one will run SBATCH_PIPER and SBATCH_EXTRACT TOP_DECOYS
-
-
 RUN_PIPER_SLURM = 'sbatch --mem=1500m --nice=10000 run_piper'
 
 # This will be created under the name run_piper. PIPER_DOCKING is the only unchangeable command here
@@ -85,7 +80,7 @@ SBATCH_PIPER = '#!/bin/sh\n' \
                '#SBATCH --time=20:00:00\n' \
                '#SBATCH --get-user-env\n'\
                + PIPER_DOCKING
-APPLY_FTRESULTS = 'python' + PIPER_DIR + 'apply_ftresults.py -i {model} ft.000.00 ' \
+APPLY_FTRESULTS = 'python ' + PIPER_DIR + 'apply_ftresult.py -i {model} ft.000.00 ' \
                   + PIPER_DIR + 'prms/rot70k.0.0.4.prm {lig} --out-prefix {out}'
 
 
@@ -93,6 +88,10 @@ APPLY_FTRESULTS = 'python' + PIPER_DIR + 'apply_ftresults.py -i {model} ft.000.0
 #                             "#SBATCH --get-user-env\nfor f in `awk '{print $1}' ft.000.00 | head -250`;" \
 #                             "do if [ ! -f {f}.pdb ]; then " + PIPER_DIR + "apply_ftresult.py -i $f ft.000.00 "\
 #                             + PIPER_DIR + "prms/rot70k.0.0.4.prm %s --out-prefix $f;fi;done"
+
+# RUN_PIPER = "job_id_PIPER_dock=`sbatch --mem=1500m --nice=10000 run_piper| awk '{print $NF}' | grep [0-9]` && " \
+#             "job_id_extraction=$(sbatch --dependency=afterany:$job_id_PIPER_dock --mem-per-cpu=1500m " \
+#             "run_extract_decoys)"  # This one will run SBATCH_PIPER and SBATCH_EXTRACT TOP_DECOYS
 
 RUN_FPD_SLURM = 'sbatch --mem-per-cpu=1600m run_refinement'
 SBATCH_FPD = '#!/bin/bash\n' \
@@ -159,7 +158,7 @@ def make_pick_fragments(pep_seq):
                          'filtered.vall.dat.2006-05-05.gz\n'
                          '-in:file:checkpoint\txxxxx.checkpoint\n'
                          '-frags:describe_fragments\tfrags.fsc\n'
-                         '-frags:frag_sizes\t' + str(len(pep_seq)) + '\n'
+                         '-frags:frag_sizes\t' + str(pep_length) + '\n'
                          '-frags:n_candidates\t2000\n'
                          '-frags:n_frags\t100\n'
                          '-out:file:frag_prefix\tfrags\n'
@@ -557,16 +556,17 @@ def process_for_piper(pdb_dict, receptor):
     os.chdir(root)
 
 
-def build_peptide(pep_seq):
+def build_peptide(pep):
     """Create directory for prepacking and, extended peptide and change its chain id to 'B'"""
     if not os.path.exists(prepack_dir):
         os.makedirs(prepack_dir)
     os.chdir(prepack_dir)
     # Build extended peptide
-    os.system(BUILD_PEPTIDE.format(os.path.join(root, pep_seq)))
+    os.system(BUILD_PEPTIDE.format(pep))
 
     # Change chain ID to 'B'
     rename_chain('peptide.pdb', 'B')
+    os.chdir(root)
 
 
 def create_batch(receptor, i, script):
@@ -583,34 +583,42 @@ def create_batch(receptor, i, script):
 
 def run_piper_fpd(receptor):
     os.chdir(piper_dir)
-    receptor_base = os.path.basename(receptor)
-    receptor_name = os.path.splitext(receptor_base)[0]
+    receptor_name = os.path.splitext(os.path.basename(receptor))[0]
     list_of_runs = []
     for i in range(1, 51):
         run_dir = "{:02}".format(i)
-        os.makedirs(run_dir)
         list_of_runs.append(os.path.basename(run_dir))
-        os.chdir(run_dir)
-        os.system(COPY.format(os.path.join(piper_dir, 'ligands', 'lig.' + "{:04}".format(i) + '_nmin.pdb'),
-                              'lig.' + "{:04}".format(i) + '_nmin.pdb'))
+        if not os.path.exists(run_dir):
+            os.makedirs(run_dir)
+            os.chdir(run_dir)
+            os.system(COPY.format(os.path.join(piper_dir, 'ligands', 'lig.' + "{:04}".format(i) + '_nmin.pdb'),
+                                  'lig.' + "{:04}".format(i) + '_nmin.pdb'))
 
-        create_batch(receptor_name, i, 'piper')
-        # create_batch(receptor_name, i, 'decoys')
-        os.system(RUN_PIPER_SLURM)  # run PIPER docking and extract 250 top decoys
+            create_batch(receptor_name, i, 'piper')
+            # create_batch(receptor_name, i, 'decoys')
+            os.system(RUN_PIPER_SLURM)  # run PIPER docking and extract 250 top decoys
         os.chdir(piper_dir)
-    list_of_runs = list(range(1, 51))
+
     while len(list_of_runs) > 0:
         for results_dir in os.listdir(piper_dir):
             if os.path.basename(results_dir) in list_of_runs:
                 os.chdir(results_dir)
                 if os.path.exists('ft.000.00'):
                     with open('ft.000.00') as trans_rot_file:
+                        i = 1
                         for line in trans_rot_file:
-                            os.system(APPLY_FTRESULTS.format(model=line.split()[0],
+                            piper_model = line.split()[0]
+                            os.system(APPLY_FTRESULTS.format(model=piper_model,
                                                              lig='lig.*.pdb', out=line.split()[0]))
-                            list_of_runs.remove(os.path.basename(results_dir))
-                            run_refinement(results_dir, line.split()[0])
-                            os.chdir(piper_dir)
+                            if i >= 250:
+                                break
+                            i += 1
+                        input_list = prepare_fpd_input(receptor,
+                                                       os.path.join(refinement_dir, os.path.basename(results_dir) +
+                                                                    '.' + piper_dir))
+                        run_refinement(input_list)
+                        list_of_runs.remove(os.path.basename(results_dir))
+                        os.chdir(piper_dir)
 
                 else:
                     os.chdir(piper_dir)
@@ -636,27 +644,32 @@ def prepack_receptor(receptor):
     """Prepack receptor for FlexPepDock run"""
     print("Prepacking receptor")
     os.chdir(prepack_dir)
-    combine_receptor_peptide(receptor, os.path.join(root, sys.argv[1]), 'start.pdb')
+    combine_receptor_peptide(receptor, 'peptide.pdb', 'start.pdb')
     prepack_flags_file(receptor)
     if talaris:
         os.system(PREPACK_TALARIS)
     else:
         os.system(PREPACK)
     ppk_receptor = os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb'
-    with open(ppk_receptor, 'w') as new:
+    with open(ppk_receptor, 'w') as renamed_rec:
         with open('start_0001.pdb', 'r') as start:
             for line in start:
-                if line[21] == 'A':
-                    if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
-                        new.write(line)
+                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
+                    if line[21] == 'A':
+                        renamed_rec.write(line)
                 else:
-                    break
+                    continue
     print("Prepack done!")
 
 
-def prepare_fpd_input(ppk_receptor, output):
+def prepare_fpd_input(receptor, output):
     """For each model in current dir replace receptor with prepacked one"""
-    list_of_models = []
+    list_of_models = []  # Here store all the names of the models for fpd run
+    if not os.path.exists(refinement_dir):  # Create directory for FPD
+        os.makedirs(refinement_dir)
+    os.chdir(refinement_dir)  # Enter the directory
+    # Define a name of prepacked repceptor
+    ppk_receptor = os.path.join(prepack_dir, os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb')
     for model in os.listdir('.'):
         if os.path.splitext(model)[1] == '.pdb':
             combine_receptor_peptide(ppk_receptor, model, output)
@@ -665,15 +678,9 @@ def prepare_fpd_input(ppk_receptor, output):
     return list_of_models
 
 
-def run_refinement(run_num, model_num):
+def run_refinement(input_list):
     """Prepare fpd input: replace receptor in piper models with prepacked one, create .gz files,
     create refinement flags, run refinement"""
-    if not os.path.exists(refinement_dir):
-        os.makedirs(refinement_dir)
-    ppk_receptor = os.path.join(prepack_dir, 'start')
-    # Here receptor will be replaced with prepacked one and input .gz files created
-    input_list = prepare_fpd_input(ppk_receptor, os.path.join(refinement_dir, run_num + '.' + model_num))
-    os.chdir(refinement_dir)
     with open('input_list', 'w') as i_list:
         for model in input_list:
             i_list.write(model + '\n')
@@ -686,24 +693,24 @@ def run_refinement(run_num, model_num):
 
 def run_protocol(peptide_sequence, receptor):
 
-    make_pick_fragments(peptide_sequence)
+    # make_pick_fragments(peptide_sequence)
+    #
+    # create_params_file(FRAGS_FILE.format(str(pep_length)))
+    #
+    # # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
+    # pdb_and_resfiles = process_frags(peptide_seq)
+    #
+    # create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
+    #
+    # # run fixbb
+    # run_fixbb()
+    #
+    # # process ligands and receptor for piper run
+    # process_for_piper(pdb_and_resfiles, receptor)
 
-    create_params_file(FRAGS_FILE.format(str(pep_length)))
-
-    # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
-    pdb_and_resfiles = process_frags(peptide_seq)
-
-    create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
-
-    # run fixbb
-    run_fixbb()
-
-    # process ligands and receptor for piper run
-    process_for_piper(pdb_and_resfiles, receptor)
-
-    build_peptide(sys.argv[1])  # build extended peptide and rename it's chain id to 'B'
-
-    prepack_receptor(receptor)
+    # build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
+    #
+    # prepack_receptor(receptor)
 
     # run piper docking and extract top 250 models
     run_piper_fpd(receptor)
@@ -715,7 +722,7 @@ if __name__ == "__main__":
 
     if len(sys.argv) < 3:
         print('Usage: \n [receptor.pdb] [peptide_sequence] optional: [restore_talaris_behaviour]'
-              '\n You need to provide a pdb file for receptor and a text file with peptide sequence '
+              '\nYou need to provide a pdb file for receptor and a text file with peptide sequence '
               '(up to 15 amino acids)\n'
               'If you want to run it with talaris2014, add "restore_talaris_behaviour" option and make'
               ' sure you have both 2016 and 2018 versions of Rosetta')
