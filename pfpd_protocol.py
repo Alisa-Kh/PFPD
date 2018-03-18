@@ -56,7 +56,7 @@ PREPACK = ROSETTA_BIN + 'FlexPepDocking.default.linuxgccrelease -database ' + \
 PREPACK_TALARIS = ROSETTA_2016_BIN + 'FlexPepDocking.mpi.linuxgccrelease -database ' + \
                   ROSETTA_DB + ' @prepack_flags >ppk.log'
 
-FPD_REFINEMENT = 'mpirun ' + ROSETTA_BIN + 'FlexPepDocking.mpi.linuxgccrelease -database' +\
+FPD_REFINEMENT = 'mpirun ' + ROSETTA_BIN + 'FlexPepDocking.mpiserialization.linuxgccrelease -database' +\
                  ROSETTA_DB + ' @refine_flags >refinement_log'
 FPD_REFINEMENT_TALARIS = 'mpirun ' + ROSETTA_2016_BIN + 'FlexPepDocking.mpi.linuxgccrelease' \
                          ' -database' + ROSETTA_2016_DB + ' @refine_flags >refinement_log'
