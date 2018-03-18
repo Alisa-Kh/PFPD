@@ -2,6 +2,7 @@
 
 import sys
 import os
+import subprocess
 
 #########################
 """ Change paths here """
@@ -23,10 +24,12 @@ MAKE_FRAGMENTS_DIR = '/vol/ek/share/scripts/global_pep_dock/fragpicker_setup/'
 PIPER_DIR = '/vol/ek/Home/alisa/PIPER/'
 PIPER_BIN = PIPER_DIR + 'bin/'
 
+# TODO: Go to cluster.sh script and change paths there also!!!
+# rosetta_dir/demos/protocol_capture/flex_pep_dock_abinitio/scripts/clustering/cluster.sh
 
-##################################
-"""DO NOT change these commands"""
-##################################
+######################################
+"""DO NOT change following commands"""
+######################################
 
 # Commands (ROSETTA)
 
@@ -54,9 +57,13 @@ PREPACK_TALARIS = ROSETTA_2016_BIN + 'FlexPepDocking.mpi.linuxgccrelease -databa
                   ROSETTA_DB + ' @prepack_flags >ppk.log'
 
 FPD_REFINEMENT = 'mpirun ' + ROSETTA_BIN + 'FlexPepDocking.mpi.linuxgccrelease -database' +\
-                 ROSETTA_DB + '@refine_flags >refinement_log'
+                 ROSETTA_DB + ' @refine_flags >refinement_log'
 FPD_REFINEMENT_TALARIS = 'mpirun ' + ROSETTA_2016_BIN + 'FlexPepDocking.mpi.linuxgccrelease' \
                          ' -database' + ROSETTA_2016_DB + ' @refine_flags >refinement_log'
+
+
+CLUSTERING = ROSETTA_DIR + 'demos/protocol_capture/flex_pep_dock_abinitio/scripts/clustering/cluster.sh ' \
+                           '2.0 {native} {decoys}'
 
 # Commands (PIPER)
 
@@ -81,7 +88,31 @@ COPY = 'cp {} {}'
 
 PREPARE_FPD_IN = "piper_run=`pwd | awk -F'/' '{print $NF}'` for f in `ls [0-9]*.pdb`;" \
                  "do cat %s ${f} | grep ATOM > %s/${piper_run}.${f};" \
-                 "gzip %s/${piper_run}.${f};ls *gz >%s/list;cd %s;done"
+                 "gzip %s/${piper_run}.${f};ls *gz >%s/input_list;cd %s;done"
+
+# Other constants
+
+FRAGS_FILE = 'frags.100.{}mers'
+THREE_TO_ONE_AA = {'G': 'GLY',
+                   'A': 'ALA',
+                   'V': 'VAL',
+                   'L': 'LEU',
+                   'I': 'ILE',
+                   'P': 'PRO',
+                   'C': 'CYS',
+                   'M': 'MET',
+                   'H': 'HIS',
+                   'F': 'PHE',
+                   'Y': 'TYR',
+                   'W': 'TRP',
+                   'N': 'ASN',
+                   'Q': 'GLN',
+                   'S': 'SER',
+                   'T': 'THR',
+                   'K': 'LYS',
+                   'R': 'ARG',
+                   'D': 'ASP',
+                   'E': 'GLU'}
 
 #####################################################################################
 """WE are using SLURM workload manager. If you are not - change the commands below"""
@@ -110,40 +141,22 @@ SBATCH_FPD = '#!/bin/bash\n' \
              '#SBATCH --ntasks=300\n' \
              '#SBATCH --time=50:00:00\n' \
              '#SBATCH --get-user-env\n' \
-             '{fpd_version}' \
+             '{fpd_version}'
 
-RUN_PIPER_FPD = "job_id_PIPER_dock=`sbatch --mem=1500m --nice=10000 run_piper | awk '{print $NF}'` && " \
-            "job_id_extraction=`sbatch --dependency=afterany:$job_id_PIPER_dock --mem-per-cpu=1500m " \
-            "run_extract_decoys | awk '{print $NF}'` && " \
-            "job_id_prepare_fpd_inputs=`sbatch --dependency=afterany:$job_id_extraction " \
-            "--mem-per-cpu=1500m run_prepare_fpd_inputs | awk '{print $NF}'` && " \
-            "`sbatch --dependency=afterany:$job_id_prepare_fpd_inputs --mem-per-cpu=1600m run_refinement`"
+SBATCH_CLUSTERING = '#!/bin/bash\n' \
+                    '#SBATCH --ntasks=1\n' \
+                    '#SBATCH --time=1:00:00\n' \
+                    '#SBATCH --get-user-env\n' \
+                    + CLUSTERING
+
+
+RUN_PIPER = ['sbatch', '--mem=1500m', '--nice=10000', 'run_piper']
+RUN_EXTRACT_DECOYS = ['sbatch', '--mem-per-cpu=1500m', 'run_extract_decoys']
+RUN_PREP_FPD_INPUTS = ['sbatch', '--mem-per-cpu=1500m', 'run_prepare_fpd_inputs']
+RUN_REFINEMENT = ['sbatch', '--mem-per-cpu=1600m', 'run_refinement']
+RUN_CLUSTERING = ['sbatch', '--mem-per-cpu=1600m', 'run_clustering']
 
 ####################################################################################
-
-# Other constants
-
-FRAGS_FILE = 'frags.100.{}mers'
-THREE_TO_ONE_AA = {'G': 'GLY',
-                   'A': 'ALA',
-                   'V': 'VAL',
-                   'L': 'LEU',
-                   'I': 'ILE',
-                   'P': 'PRO',
-                   'C': 'CYS',
-                   'M': 'MET',
-                   'H': 'HIS',
-                   'F': 'PHE',
-                   'Y': 'TYR',
-                   'W': 'TRP',
-                   'N': 'ASN',
-                   'Q': 'GLN',
-                   'S': 'SER',
-                   'T': 'THR',
-                   'K': 'LYS',
-                   'R': 'ARG',
-                   'D': 'ASP',
-                   'E': 'GLU'}
 
 ######################################################################
 """It is not recommended to change the flags, unless you know what you 
@@ -153,13 +166,13 @@ THREE_TO_ONE_AA = {'G': 'GLY',
 
 def make_pick_fragments(pep_seq):
     """Run fragment picker"""
-
     if not os.path.exists(frag_picker_dir):
         os.makedirs(frag_picker_dir)
     # Create fasta file:
     with open(os.path.join(frag_picker_dir, 'xxxxx.fasta'), 'w') as fasta_file:
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
     os.chdir(frag_picker_dir)
+    print("**************Picking fragments**************")
     os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
     # Create psi_L1.cfg file:
     with open('psi_L1.cfg', 'w') as scores:
@@ -210,7 +223,7 @@ def prepack_flags_file(receptor):
 
 
 def refine_flags_file():
-    with open('refine_flags', 'w') as flags:
+    with open(os.path.join(refinement_dir, 'refine_flags'), 'w') as flags:
         flags.write('-in:file:l input_list\n'
                     '-scorefile score.sc\n'
                     '-out:pdb_gz\n'
@@ -491,7 +504,7 @@ def create_xml(pdb_resfile_dict):
 def run_fixbb():
     """Run jd3_fixbb design (with option to restore talaris behaviour)"""
     os.chdir(fixbb_dir)
-    print("running fixbb design")
+    print("**************Fixbb design**************")
     if talaris:
         os.system(FIXBB_JD3_TALARIS.format('design.xml'))
     else:
@@ -576,7 +589,7 @@ def create_batch(receptor, i, run):
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
     rec_name = os.path.join(piper_dir, receptor + '_nmin.pdb')
     lig_name = 'lig.' + "{:04}".format(i) + '_nmin.pdb'
-
+    ppk_receptor = os.path.join(prepack_dir, os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb')
     if run == 'piper':
         with open('run_piper', 'w') as piper:
             piper.write(SBATCH_PIPER.format(r=rec_name, l=lig_name))
@@ -585,21 +598,27 @@ def create_batch(receptor, i, run):
             extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % lig_name)
     elif run == 'prepare_inputs':
         with open('run_prepare_fpd_inputs', 'w') as inputs:
-            ppk_receptor = os.path.join(prepack_dir, os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb')
             inputs.write(SBATCH_PREP_FPD_INPUT % (ppk_receptor, refinement_dir, refinement_dir, refinement_dir,
                                                   refinement_dir))
     elif run == 'refinement':
-        with open('run_refinement', 'w') as refinement:
+        with open(os.path.join(refinement_dir, 'run_refinement'), 'w') as refinement:
             if talaris:
                 refinement.write(SBATCH_FPD.format(fpd_version=FPD_REFINEMENT_TALARIS))
             else:
                 refinement.write(SBATCH_FPD.format(fpd_version=FPD_REFINEMENT))
+    elif run == 'clustering':
+        with open(os.path.join(clustering_dir, 'run_clustering'), 'w') as clustering:
+            clustering.write(SBATCH_CLUSTERING.format(native=os.path.join(prepack_dir, 'start.pdb'),
+                                                      decoys=os.path.join(refinement_dir, 'decoys.silent')))
 
 
 def run_piper_fpd(receptor):
     """Run PIPER, FPD and clustering"""
-    os.chdir(piper_dir)
+    print("**************Sending PIPER, FlexPepDock and clustering jobs**************")
     receptor_name = os.path.splitext(os.path.basename(receptor))[0]
+    jobs_list = []
+    # PIPER step
+    os.chdir(piper_dir)
     for i in range(1, 51):
         run_dir = "{:02}".format(i)
         if not os.path.exists(run_dir):
@@ -610,9 +629,38 @@ def run_piper_fpd(receptor):
         create_batch(receptor_name, i, 'piper')
         create_batch(receptor_name, i, 'decoys')
         create_batch(receptor_name, i, 'prepare_inputs')
-        create_batch(receptor_name, i, 'refinement')
-        os.system(RUN_PIPER_FPD)  # run PIPER docking, extract 250 top decoys, run refinement and clustering
+
+        # run PIPER docking, extract 250 top decoys, run refinement and clustering
+        run_piper = subprocess.check_output(RUN_PIPER)
+        piper_id = run_piper.split()[-1]
+        RUN_EXTRACT_DECOYS.insert(1, '--dependency=afterany:%s' % piper_id)
+        run_extract_decoys = subprocess.check_output(RUN_EXTRACT_DECOYS)
+        extract_decoys_id = run_extract_decoys.split()[-1]
+        RUN_PREP_FPD_INPUTS.insert(1, '--dependency=afterany:%s' % extract_decoys_id)
+        run_prepare_fpd_inputs = subprocess.check_output(RUN_PREP_FPD_INPUTS)
+        jobs_list.append(run_prepare_fpd_inputs.split()[-1])
         os.chdir(piper_dir)
+
+    # FPD refinement
+    if not os.path.exists(refinement_dir):
+        os.makedirs(refinement_dir)
+    os.chdir(refinement_dir)
+    create_batch(receptor_name, 0, 'refinement')
+    refine_flags_file()
+    all_prep_jobs = ''
+    for job_id in jobs_list:
+        all_prep_jobs += ':' + job_id
+    RUN_REFINEMENT.insert(1, '--dependency=afterany%s' % all_prep_jobs)
+    run_refinement = subprocess.check_output(RUN_REFINEMENT)
+    refinement_id = run_refinement.split()[-1]
+
+    # Clustering
+    if not os.path.exists(clustering_dir):
+        os.makedirs(clustering_dir)
+    os.chdir(clustering_dir)
+    create_batch(receptor, 0, 'clustering')
+    RUN_CLUSTERING.insert(1, '--dependency=afterany:%s' % refinement_id)
+    subprocess.call(RUN_CLUSTERING)
     os.chdir(root)
 
 
@@ -631,7 +679,7 @@ def combine_receptor_peptide(receptor, ligand, out):
 
 def prepack_receptor(receptor):
     """Prepack receptor for FlexPepDock run"""
-    print("Prepacking receptor")
+    print("**************Prepacking receptor**************")
     os.chdir(prepack_dir)
     combine_receptor_peptide(receptor, 'peptide.pdb', 'start.pdb')
     prepack_flags_file(receptor)
@@ -675,13 +723,10 @@ def run_protocol(peptide_sequence, receptor):
     # run piper docking and extract top 250 models
     run_piper_fpd(receptor)
 
-    # TODO: clustering
-
-
 if __name__ == "__main__":
 
     if len(sys.argv) < 3:
-        print('Usage: \n [receptor.pdb] [peptide_sequence] optional: [restore_talaris_behaviour]'
+        print('Usage:\n [receptor.pdb] [peptide_sequence] optional: [restore_talaris_behaviour]'
               '\nYou need to provide a pdb file for receptor and a text file with peptide sequence '
               '(up to 15 amino acids)\n'
               'If you want to run it with talaris2014, add "restore_talaris_behaviour" option and make '
@@ -706,6 +751,7 @@ if __name__ == "__main__":
     piper_dir = os.path.join(root, 'piper')
     prepack_dir = os.path.join(root, 'prepacking')
     refinement_dir = os.path.join(root, 'refinement')
+    clustering_dir = os.path.join(refinement_dir, 'clustering')
 
     pep_length = len(peptide_seq)
 
