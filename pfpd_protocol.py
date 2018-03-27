@@ -11,21 +11,19 @@ import subprocess
 ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'
 ROSETTA_2016_DIR = '/vol/ek/share/rosetta/rosetta_src_2016.20.58704_bundle/'
 
-ROSETTA_DB = ROSETTA_DIR + 'main/database'
-ROSETTA_2016_DB = ROSETTA_2016_DIR + 'main/database'
+ROSETTA_DB = os.path.join(ROSETTA_DIR, 'main/database')
+ROSETTA_2016_DB = os.path.join(ROSETTA_2016_DIR, 'main/database')
 
-ROSETTA_BIN = ROSETTA_DIR + 'main/source/bin/'
-ROSETTA_2016_BIN = ROSETTA_2016_DIR + 'main/source/bin/'
+ROSETTA_BIN = os.path.join(ROSETTA_DIR, 'main/source/bin/')
+ROSETTA_2016_BIN = os.path.join(ROSETTA_2016_DIR, 'main/source/bin/')
 
-ROSETTA_TOOLS = ROSETTA_DIR + 'tools/protein_tools/scripts/'
+ROSETTA_TOOLS = os.path.join(ROSETTA_DIR, 'tools/')
 
-MAKE_FRAGMENTS_DIR = '/vol/ek/share/scripts/global_pep_dock/fragpicker_setup/'
+# Path to make_fragments.pl that was downloaded along with this script
+MAKE_FRAGMENTS_DIR = '/vol/ek/Home/alisa/scripts/piper-fpd/'
 
 PIPER_DIR = '/vol/ek/Home/alisa/PIPER/'
-PIPER_BIN = PIPER_DIR + 'bin/'
-
-# TODO: Go to cluster.sh script and change paths there also!!!
-# rosetta_dir/demos/protocol_capture/flex_pep_dock_abinitio/scripts/clustering/cluster.sh
+PIPER_BIN = os.path.join(PIPER_DIR, 'bin/')
 
 ######################################
 """DO NOT change following commands"""
@@ -33,37 +31,40 @@ PIPER_BIN = PIPER_DIR + 'bin/'
 
 # Commands (ROSETTA)
 
-GET_PDB = ROSETTA_TOOLS + 'clean_pdb.py {} {}'
+GET_PDB = os.path.join(ROSETTA_TOOLS, 'protein_tools/scripts/clean_pdb.py') + ' {} {}'
 
-FIXBB_JD3 = 'mpirun -n 6 ' + ROSETTA_BIN + 'fixbb_jd3.mpiserialization.linuxgccrelease' \
+FIXBB_JD3 = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiserialization.linuxgccrelease') + \
             ' -database ' + ROSETTA_DB + ' -in:file:job_definition_file {} > fixbb.log'
-FIXBB_JD3_TALARIS = 'mpirun -n 6 ' + ROSETTA_BIN + 'fixbb_jd3.mpiserialization.linuxgccrelease' \
-                     ' -database ' + ROSETTA_DB + ' -restore_talaris_behavior' \
-                     ' -in:file:job_definition_file {} > fixbb.log'
+FIXBB_JD3_TALARIS = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiserialization.linuxgccrelease') + \
+                    ' -database ' + ROSETTA_DB + ' -restore_talaris_behavior ' \
+                     '-in:file:job_definition_file {} > fixbb.log'
 
-BUILD_PEPTIDE = ROSETTA_BIN + 'BuildPeptide.linuxgccrelease -in:file:fasta {}' \
-                ' -database ' + ROSETTA_DB + ' -out:file:o peptide.pdb ' \
-                '> build_peptide.log'
+BUILD_PEPTIDE = os.path.join(ROSETTA_BIN, 'BuildPeptide.linuxgccrelease') + ' -in:file:fasta {}' \
+                ' -database ' + ROSETTA_DB + ' -out:file:o peptide.pdb > build_peptide.log'
 
-MAKE_FRAGMENTS = 'perl ' + MAKE_FRAGMENTS_DIR + 'make_fragments.pl' \
+MAKE_FRAGMENTS = 'perl ' + os.path.join(MAKE_FRAGMENTS_DIR, 'make_fragments.pl') + \
                  ' -verbose -id xxxxx {} 2>log'
 
-FRAG_PICKER = ROSETTA_BIN + 'fragment_picker.linuxgccrelease' \
+FRAG_PICKER = os.path.join(ROSETTA_BIN, 'fragment_picker.linuxgccrelease') + \
               ' -database ' + ROSETTA_DB + ' @flags >makeFrags.log'
 
-PREPACK = ROSETTA_BIN + 'FlexPepDocking.default.linuxgccrelease -database ' + \
-          ROSETTA_DB + ' @prepack_flags >ppk.log'
-PREPACK_TALARIS = ROSETTA_2016_BIN + 'FlexPepDocking.mpi.linuxgccrelease -database ' + \
-                  ROSETTA_DB + ' @prepack_flags >ppk.log'
+PREPACK = os.path.join(ROSETTA_BIN, 'FlexPepDocking.default.linuxgccrelease') + \
+          ' -database ' + ROSETTA_DB + ' @prepack_flags >ppk.log'
+PREPACK_TALARIS = os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
+                  ' -database ' + ROSETTA_DB + ' @prepack_flags >ppk.log'
 
-FPD_REFINEMENT = 'mpirun ' + ROSETTA_BIN + 'FlexPepDocking.mpiserialization.linuxgccrelease -database' +\
-                 ROSETTA_DB + ' @refine_flags >refinement_log'
-FPD_REFINEMENT_TALARIS = 'mpirun ' + ROSETTA_2016_BIN + 'FlexPepDocking.mpi.linuxgccrelease' \
-                         ' -database' + ROSETTA_2016_DB + ' @refine_flags >refinement_log'
+FPD_REFINEMENT = 'ls *gz >input_list\n' \
+                 'mpirun ' + os.path.join(ROSETTA_BIN, 'FlexPepDocking.mpiserialization.linuxgccrelease') + \
+                 ' -database ' + ROSETTA_DB + ' @refine_flags >refinement_log'
+FPD_REFINEMENT_TALARIS = 'ls *gz >input_list\n' \
+                         'mpirun ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
+                         ' -database ' + ROSETTA_2016_DB + ' @refine_flags >refinement_log'
 
+# CLUSTERING = os.path.join(ROSETTA_DIR,
+#                           'demos/protocol_capture/flex_pep_dock_abinitio/scripts/clustering/cluster.sh') + \
+#                           ' 2.0 {native} {decoys}'
 
-CLUSTERING = ROSETTA_DIR + 'demos/protocol_capture/flex_pep_dock_abinitio/scripts/clustering/cluster.sh ' \
-                           '2.0 {native} {decoys}'
+CLUSTERING = '/vol/ek/Home/alisa/scripts/piper-fpd/cluster.sh'  # TODO: should we distribute this too?
 
 # Commands (PIPER)
 
@@ -86,9 +87,8 @@ APPLY_FTRESULTS = 'python ' + PIPER_DIR + 'apply_ftresult.py -i {model} ft.000.0
 
 COPY = 'cp {} {}'
 
-PREPARE_FPD_IN = "piper_run=`pwd | awk -F'/' '{print $NF}'` for f in `ls [0-9]*.pdb`;" \
-                 "do cat %s ${f} | grep ATOM > %s/${piper_run}.${f};" \
-                 "gzip %s/${piper_run}.${f};ls *gz >%s/input_list;cd %s;done"
+PREPARE_FPD_IN = "piper_run=`pwd | awk -F'/' '{print $NF}'`\nfor f in `ls [0-9]*.pdb`;" \
+                 "do cat %s ${f} | grep ATOM >%s/${piper_run}.${f};gzip %s/${piper_run}.${f};done"
 
 # Other constants
 
@@ -181,8 +181,8 @@ def make_pick_fragments(pep_seq):
                      'ProfileScoreL1\t200\t1.0\t-\n')
     # Write flags
     with open('flags', 'w') as flags_file:
-        flags_file.write('-in:file:vall\t' + ROSETTA_DB + '/sampling/'
-                         'filtered.vall.dat.2006-05-05.gz\n'
+        flags_file.write('-in:file:vall\t' + ROSETTA_TOOLS +
+                         'fragment_tools/vall.jul19.2011.gz\n'
                          '-in:file:checkpoint\txxxxx.checkpoint\n'
                          '-frags:describe_fragments\tfrags.fsc\n'
                          '-frags:frag_sizes\t' + str(pep_length) + '\n'
@@ -196,6 +196,7 @@ def make_pick_fragments(pep_seq):
                          '-mute\tcore.conformation\n'
                          '-mute\tcore.chemical\n'
                          '-mute\tprotocols.jumping')
+
     os.system(FRAG_PICKER)
     os.system(COPY.format(FRAGS_FILE.format(pep_length), root))
     os.chdir(root)
@@ -224,27 +225,27 @@ def prepack_flags_file(receptor):
 
 def refine_flags_file():
     with open(os.path.join(refinement_dir, 'refine_flags'), 'w') as flags:
-        flags.write('-in:file:l input_list\n'
-                    '-scorefile score.sc\n'
-                    '-out:pdb_gz\n'
-                    '-out:file:silent_struct_type binary\n'
-                    '-out:file:silent decoys.silent\n'
-                    '-min_receptor_bb\n'
-                    '-lowres_preoptimize\n'
-                    '-flexPepDocking:pep_refine\n'
-                    '-flexPepDocking:flexpep_score_only\n'
-                    '-ex1\n'
-                    '-ex2aro\n'
-                    '-use_input_sc\n'
-                    '-unboundrot receptor.pdb\n'
-                    '-mute protocols.moves.RigidBodyMover\n'
-                    '-mute core.chemical\n'
-                    '-mute core.scoring.etable\n'
-                    '-mute protocols.evalution\n'
-                    '-mute core.pack.rotamer_trials\n'
-                    '-mute protocols.abinitio.FragmentMover\n'
-                    '-mute core.fragment\n'
-                    '-mute protocols.jd2.PDBJobInputter')
+        flags.write(('-in:file:l input_list\n'
+                     '-scorefile score.sc\n'
+                     '-out:pdb_gz\n'
+                     '-out:file:silent_struct_type binary\n'
+                     '-out:file:silent decoys.silent\n'
+                     '-min_receptor_bb\n'
+                     '-lowres_preoptimize\n'
+                     '-flexPepDocking:pep_refine\n'
+                     '-flexPepDocking:flexpep_score_only\n'
+                     '-ex1\n'
+                     '-ex2aro\n'
+                     '-use_input_sc\n'
+                     '-unboundrot {native}\n'
+                     '-mute protocols.moves.RigidBodyMover\n'
+                     '-mute core.chemical\n'
+                     '-mute core.scoring.etable\n'
+                     '-mute protocols.evalution\n'
+                     '-mute core.pack.rotamer_trials\n'
+                     '-mute protocols.abinitio.FragmentMover\n'
+                     '-mute core.fragment\n'
+                     '-mute protocols.jd2.PDBJobInputter').format(native=receptor_path))
 
 ######################################
 """End of flags creating functions"""
@@ -295,39 +296,39 @@ def bad_frag(fragment):  # remove bad fragments
     return False
 
 
-def review_frags(outfile, start, end):
-    """Check if fragment length is correct and there are no zero occupancy atoms"""
-    with open(outfile) as frag:
-        residues = set()
-        cur_line = frag.readline()
-        while 'ATOM' not in cur_line[0:4]:  # find ATOM lines
-            cur_line = frag.readline()
-            # if there there no atoms...
-            if not cur_line:
-                return bad_frag(outfile)
-        cur_line = frag.readline()  # line with a first atom
-        while cur_line[22:27].strip() != start:
-            cur_line = frag.readline()
-            # if there is no start residue
-            if not cur_line:
-                return bad_frag(outfile)
-        cur_line = frag.readline()  # first atom of the start residue
-        while cur_line[22:27].strip() != end:
-            # check occupancy
-            if cur_line[54:60].strip() == 0.00:
-                print("Zero occupancy atoms")
-                return bad_frag(outfile)
-            residues.add(cur_line[22:27])
-            cur_line = frag.readline()
-            # if there is no end residue
-            if not cur_line:
-                return bad_frag(outfile)
-        residues.add(cur_line[22:27])
-    if len(residues) != (int(end) - int(start) + 1):
-        bad_frag(outfile)
-        return False
-    else:
-        return True
+# def review_frags(outfile, start, end):
+#     """Check if fragment length is correct and there are no zero occupancy atoms"""
+#     with open(outfile) as frag:
+#         residues = set()
+#         cur_line = frag.readline()
+#         while 'ATOM' not in cur_line[0:4]:  # find ATOM lines
+#             cur_line = frag.readline()
+#             # if there there no atoms...
+#             if not cur_line:
+#                 return bad_frag(outfile)
+#         cur_line = frag.readline()  # line with a first atom
+#         while cur_line[22:27].strip() != start:
+#             cur_line = frag.readline()
+#             # if there is no start residue
+#             if not cur_line:
+#                 return bad_frag(outfile)
+#         cur_line = frag.readline()  # first atom of the start residue
+#         while cur_line[22:27].strip() != end:
+#             # check occupancy
+#             if cur_line[54:60].strip() == 0.00:
+#                 print("Zero occupancy atoms")
+#                 return bad_frag(outfile)
+#             residues.add(cur_line[22:27])
+#             cur_line = frag.readline()
+#             # if there is no end residue
+#             if not cur_line:
+#                 return bad_frag(outfile)
+#         residues.add(cur_line[22:27])
+#     if len(residues) != (int(end) - int(start) + 1):
+#         bad_frag(outfile)
+#         return False
+#     else:
+#         return True
 
 
 def review_fasta_frag(outfile, sequence):
@@ -337,6 +338,9 @@ def review_fasta_frag(outfile, sequence):
         cur_line = frag.readline()
         for i in range(pep_length):
             if cur_line[:4] == 'ATOM' and cur_line[17:20] == THREE_TO_ONE_AA[sequence[i]]:
+                if cur_line[54:60].strip() == 0.00:
+                    print("Zero occupancy atoms!")
+                    return bad_frag(outfile)
                 residues += sequence[i]
                 cur_resi = cur_line[22:27].strip()
                 while cur_resi == cur_line[22:27].strip():
@@ -345,7 +349,7 @@ def review_fasta_frag(outfile, sequence):
                 return bad_frag(outfile)
         if residues == sequence:
             return True
-        return False
+        return bad_frag(outfile)
 
 
 def extract_frag(pdb, start, end, outfile):
@@ -365,7 +369,7 @@ def extract_frag(pdb, start, end, outfile):
 
 
 def process_frags(pep_sequence):
-
+    """Process and extract frags, filter bad fragments"""
     # Open the frags_parameters, extract and append parameters to different lists
     with open('frags_parameters', 'r') as f:
         fragments = f.readlines()
@@ -392,7 +396,7 @@ def process_frags(pep_sequence):
     pdb_resfiles_dict = dict()  # names of pdbs and their resfiles
 
     os.chdir('top_50_frags')
-
+    print("**************Extracting fragments**************")
     # Fetch PDBs, extract fragments and create resfiles
     for pdb, chain, start, end, sequence in zip(pdbs, chains, start_res, end_res, sequences):
         fragment_name = pdb + '.' + chain + '.' + start + '.' + end
@@ -407,35 +411,34 @@ def process_frags(pep_sequence):
         if os.path.exists(pdb_full):
 
             print("Extracting fragment")
-
-            extract_frag(pdb_full, start, end, outfile)
             is_frag_ok = False
 
-            if not os.path.exists(outfile) or os.path.getsize(outfile) == 0:
-                print("Trying to extract from FASTA")
+            # extract_frag(pdb_full, start, end, outfile)
 
-                with open(fasta_name, 'r') as f:
-                    fasta = f.read()
-                clean_fasta = fasta[fasta.find('\n') + 1:]
-                fasta_start = clean_fasta.find(sequence) + 1  # +1 because of zero-based numbering
-                if fasta_start == 0:  # -1 would mean 'sequence doesn't exist', but we added 1
-                    print("no matching sequence")
-                    continue
-                fasta_end = fasta_start + pep_length - 1
+            # if not os.path.exists(outfile) or os.path.getsize(outfile) == 0:
+            # print("Trying to extract from FASTA")
 
-                extract_frag(pdb_full, str(fasta_start), str(fasta_end), outfile)
+            with open(fasta_name, 'r') as f:
+                fasta = f.read()
+            clean_fasta = fasta[fasta.find('\n') + 1:]
+            fasta_start = clean_fasta.find(sequence) + 1  # +1 because of zero-based numbering
+            if fasta_start == 0:  # -1 would mean 'sequence doesn't exist', but we added 1
+                print("no matching sequence")
+                continue
+            fasta_end = fasta_start + pep_length - 1
 
-                is_frag_ok = review_fasta_frag(outfile, sequence)
-                if is_frag_ok:
-                    print("success!")
-                else:
-                    print("Failed to extract fragment")
-                    os.remove(pdb_full)
-                    os.remove(fasta_name)
-                    continue
+            extract_frag(pdb_full, str(fasta_start), str(fasta_end), outfile)
+
+            is_frag_ok = review_fasta_frag(outfile, sequence)
+            if is_frag_ok:
+                print("success!")
             else:
-                is_frag_ok = review_frags(outfile, start, end)
-
+                print("Failed to extract fragment")
+                os.remove(pdb_full)
+                os.remove(fasta_name)
+                continue
+            # else:
+            #     is_frag_ok = review_frags(outfile, start, end)
             os.remove(pdb_full)
             os.remove(fasta_name)
 
@@ -444,7 +447,7 @@ def process_frags(pep_sequence):
                 frags_count = len([frag for frag in os.listdir('.') if
                                    os.path.isfile(os.path.join(cur_dir, frag))])
                 print("creating resfile")
-                create_resfile(pep_sequence, chain, start, sequence, fragment_name)
+                create_resfile(pep_sequence, chain, fasta_start, sequence, fragment_name)
                 pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
                 if frags_count >= 50:
                     print("Got top 50 fragments")
@@ -485,19 +488,28 @@ def create_xml(pdb_resfile_dict):
                  '\t<TASKOPERATIONS>\n' \
                  '\t\t<ReadResfile name="read_resfile" filename="../../resfiles/{}"/>\n' \
                  '\t</TASKOPERATIONS>\n' \
+                 '\t<PackRotamersMover name="mover" scorefxn="{}" task_operations="read_resfile"/>\n' \
                  '</Job>\n'
     if not os.path.exists(fixbb_dir):
         os.makedirs(fixbb_dir)
     with open(fixbb_dir + '/design.xml', 'w') as xml_file:
         xml_file.write('<JobDefinitionFile>\n')
         if talaris:
-            xml_file.write('<Common>\n'
+            xml_file.write('<Common>\n'                          
                            '\t<SCOREFXNS>\n'
                            '\t\t<ScoreFunction name="Talaris14" weights="talaris2014.wts"/>\n'
                            '\t</SCOREFXNS>\n'
                            '</Common>\n')
-        for pdb, resfile in pdb_resfile_dict.items():
-            xml_file.write(job_string.format(pdb, resfile))
+            for pdb, resfile in pdb_resfile_dict.items():
+                xml_file.write(job_string.format(pdb, resfile, 'Talaris14'))
+        else:
+            xml_file.write('<Common>\n'
+                           '\t<SCOREFXNS>\n'
+                           '\t\t<ScoreFunction name="ref2015" weights="ref2015.wts"/>\n'
+                           '\t</SCOREFXNS>\n'
+                           '</Common>\n')
+            for pdb, resfile in pdb_resfile_dict.items():
+                xml_file.write(job_string.format(pdb, resfile, 'ref2015'))
         xml_file.write('</JobDefinitionFile>')
 
 
@@ -509,6 +521,7 @@ def run_fixbb():
         os.system(FIXBB_JD3_TALARIS.format('design.xml'))
     else:
         os.system(FIXBB_JD3.format('design.xml'))
+    print("Done!")
     os.chdir(root)
 
 
@@ -523,7 +536,7 @@ def rename_chain(structure, chain_id):
         if line[21].isalpha():
             new_line = list(line)
             new_line[21] = chain_id
-            renamed_struct.append("".join(new_line))
+            renamed_struct.append(''.join(new_line))
     os.remove(structure)
     with open(structure, 'w') as new_structure:
         for new_chain_line in renamed_struct:
@@ -535,7 +548,7 @@ def process_for_piper(pdb_dict, receptor):
     # Create directory
     if not os.path.exists(piper_dir):
         os.makedirs(piper_dir)
-
+    print("**************Preparing PIPER inputs**************")
     for frag in os.listdir(fixbb_dir):
         if os.path.splitext(frag)[1] == '.pdb':   # Rename chain ID to 'B'
             rename_chain(os.path.join(fixbb_dir, frag), 'B')
@@ -552,7 +565,8 @@ def process_for_piper(pdb_dict, receptor):
     lig_inx = 1
     for frag_name in pdb_dict.keys():
         designed_name = frag_name[:-4] + '_0001.pdb'
-        os.system('ln -s {} {}/lig.{:04}.pdb'.format(os.path.join(piper_dir, designed_name), ligands_dir, lig_inx))
+        os.system('ln -s {} {}/lig.{:04}.pdb'.format(os.path.join(piper_dir, designed_name),
+                                                     ligands_dir, lig_inx))
         lig_inx += 1
 
     # process ligands for PIPER
@@ -566,13 +580,19 @@ def process_for_piper(pdb_dict, receptor):
     os.chdir(piper_dir)
 
     rename_chain(os.path.basename(receptor), 'A')
-    os.system(PDBPREP.format(os.path.basename(receptor)))
-    os.system(PDBNMD.format(os.path.basename(receptor)))
+    os.system(GET_PDB.format(receptor, 'A'))  # Clean the receptor
+    name_for_piper = os.path.basename(receptor).lower()
+    os.rename(os.path.splitext(os.path.basename(receptor))[0] + '_A.pdb',
+              name_for_piper)
+    os.system(PDBPREP.format(name_for_piper))
+    os.system(PDBNMD.format(name_for_piper))
+    print("Done preparing!")
     os.chdir(root)
 
 
 def build_peptide(pep):
     """Create directory for prepacking and, extended peptide and change its chain id to 'B'"""
+    print("Building extended peptide for prepacking")
     if not os.path.exists(prepack_dir):
         os.makedirs(prepack_dir)
     os.chdir(prepack_dir)
@@ -587,7 +607,7 @@ def build_peptide(pep):
 def create_batch(receptor, i, run):
     """Create batch scripts for jobs that will be sended to cluster, such as
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
-    rec_name = os.path.join(piper_dir, receptor + '_nmin.pdb')
+    rec_name = os.path.join(piper_dir, receptor.lower() + '_nmin.pdb')
     lig_name = 'lig.' + "{:04}".format(i) + '_nmin.pdb'
     ppk_receptor = os.path.join(prepack_dir, os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb')
     if run == 'piper':
@@ -598,8 +618,7 @@ def create_batch(receptor, i, run):
             extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % lig_name)
     elif run == 'prepare_inputs':
         with open('run_prepare_fpd_inputs', 'w') as inputs:
-            inputs.write(SBATCH_PREP_FPD_INPUT % (ppk_receptor, refinement_dir, refinement_dir, refinement_dir,
-                                                  refinement_dir))
+            inputs.write(SBATCH_PREP_FPD_INPUT % (ppk_receptor, refinement_dir, refinement_dir))
     elif run == 'refinement':
         with open(os.path.join(refinement_dir, 'run_refinement'), 'w') as refinement:
             if talaris:
@@ -718,10 +737,10 @@ def run_protocol(peptide_sequence, receptor):
 
     build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
 
-    prepack_receptor(receptor)
+    # prepack_receptor(receptor)
 
-    # run piper docking and extract top 250 models
-    run_piper_fpd(receptor)
+    # # run piper docking and extract top 250 models
+    # run_piper_fpd(receptor)
 
 if __name__ == "__main__":
 
@@ -747,7 +766,7 @@ if __name__ == "__main__":
     frag_picker_dir = os.path.join(root, 'frag_picker')
     fragments_dir = os.path.join(root, 'top_50_frags')
     resfiles_dir = os.path.join(root, 'resfiles')
-    fixbb_dir = os.path.join(root, 'top_50_frags/fixbb')
+    fixbb_dir = os.path.join(fragments_dir, 'fixbb')
     piper_dir = os.path.join(root, 'piper')
     prepack_dir = os.path.join(root, 'prepacking')
     refinement_dir = os.path.join(root, 'refinement')
