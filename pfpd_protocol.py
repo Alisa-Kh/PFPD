@@ -19,7 +19,7 @@ ROSETTA_2016_BIN = os.path.join(ROSETTA_2016_DIR, 'main/source/bin/')
 
 ROSETTA_TOOLS = os.path.join(ROSETTA_DIR, 'tools/')
 
-# Path to make_fragments.pl that was downloaded along with this script
+# TODO: Path to make_fragments.pl
 MAKE_FRAGMENTS_DIR = '/vol/ek/Home/alisa/scripts/piper-fpd/'
 
 PIPER_DIR = '/vol/ek/Home/alisa/PIPER/'
@@ -59,10 +59,6 @@ FPD_REFINEMENT = 'ls *gz >input_list\n' \
 FPD_REFINEMENT_TALARIS = 'ls *gz >input_list\n' \
                          'mpirun ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
                          ' -database ' + ROSETTA_2016_DB + ' @refine_flags >refinement_log'
-
-# CLUSTERING = os.path.join(ROSETTA_DIR,
-#                           'demos/protocol_capture/flex_pep_dock_abinitio/scripts/clustering/cluster.sh') + \
-#                           ' 2.0 {native} {decoys}'
 
 CLUSTERING = '/vol/ek/Home/alisa/scripts/piper-fpd/cluster.sh'  # TODO: should we distribute this too?
 
@@ -152,10 +148,10 @@ SBATCH_CLUSTERING = '#!/bin/bash\n' \
 
 
 RUN_PIPER = ['sbatch', '--mem=1500m', '--nice=10000', 'run_piper']
-RUN_EXTRACT_DECOYS = ['sbatch', '--mem-per-cpu=1500m', 'run_extract_decoys']
-RUN_PREP_FPD_INPUTS = ['sbatch', '--mem-per-cpu=1500m', 'run_prepare_fpd_inputs']
-RUN_REFINEMENT = ['sbatch', '--mem-per-cpu=1600m', 'run_refinement']
-RUN_CLUSTERING = ['sbatch', '--mem-per-cpu=1600m', 'run_clustering']
+RUN_EXTRACT_DECOYS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_extract_decoys']
+RUN_PREP_FPD_INPUTS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_prepare_fpd_inputs']
+RUN_REFINEMENT = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_refinement']
+RUN_CLUSTERING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_clustering']
 
 ####################################################################################
 
@@ -574,10 +570,10 @@ def process_for_piper(receptor):
     os.system(COPY.format(receptor, piper_dir))
     os.chdir(piper_dir)
 
-    rename_chain(os.path.basename(receptor), 'A')
-    os.system(GET_PDB.format(receptor, 'A'))  # Clean the receptor
+    os.system(GET_PDB.format(receptor, 'nochain'))  # Clean the receptor
+    rename_chain(os.path.basename(receptor)[:-4] + '_nochain.pdb', 'A')
     name_for_piper = os.path.basename(receptor).lower()
-    os.rename(os.path.splitext(os.path.basename(receptor))[0] + '_A.pdb',
+    os.rename(os.path.splitext(os.path.basename(receptor))[0] + '_nochain.pdb',
               name_for_piper)
     os.system(PDBPREP.format(name_for_piper))
     os.system(PDBNMD.format(name_for_piper))
@@ -646,10 +642,10 @@ def run_piper_fpd(receptor):
         # run PIPER docking, extract 250 top decoys, run refinement and clustering
         run_piper = subprocess.check_output(RUN_PIPER)
         piper_id = run_piper.split()[-1]
-        RUN_EXTRACT_DECOYS.insert(1, '--dependency=afterany:%s' % piper_id)
+        RUN_EXTRACT_DECOYS[1] = '--dependency=afterany:%s' % piper_id
         run_extract_decoys = subprocess.check_output(RUN_EXTRACT_DECOYS)
         extract_decoys_id = run_extract_decoys.split()[-1]
-        RUN_PREP_FPD_INPUTS.insert(1, '--dependency=afterany:%s' % extract_decoys_id)
+        RUN_PREP_FPD_INPUTS[1] = '--dependency=afterany:%s' % extract_decoys_id
         run_prepare_fpd_inputs = subprocess.check_output(RUN_PREP_FPD_INPUTS)
         jobs_list.append(run_prepare_fpd_inputs.split()[-1])
         os.chdir(piper_dir)
@@ -663,7 +659,7 @@ def run_piper_fpd(receptor):
     all_prep_jobs = ''
     for job_id in jobs_list:
         all_prep_jobs += ':' + job_id
-    RUN_REFINEMENT.insert(1, '--dependency=afterany%s' % all_prep_jobs)
+    RUN_REFINEMENT[1] = '--dependency=afterany%s' % all_prep_jobs
     run_refinement = subprocess.check_output(RUN_REFINEMENT)
     refinement_id = run_refinement.split()[-1]
 
@@ -672,7 +668,7 @@ def run_piper_fpd(receptor):
         os.makedirs(clustering_dir)
     os.chdir(clustering_dir)
     create_batch(receptor, 0, 'clustering')
-    RUN_CLUSTERING.insert(1, '--dependency=afterany:%s' % refinement_id)
+    RUN_CLUSTERING[1] = '--dependency=afterany:%s' % refinement_id
     subprocess.call(RUN_CLUSTERING)
     os.chdir(root)
 
