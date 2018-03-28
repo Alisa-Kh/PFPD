@@ -113,6 +113,7 @@ THREE_TO_ONE_AA = {'G': 'GLY',
                    'R': 'ARG',
                    'D': 'ASP',
                    'E': 'GLU'}
+NUM_OF_FRAGS = 50
 
 #####################################################################################
 """WE are using SLURM workload manager. If you are not - change the commands below"""
@@ -286,53 +287,28 @@ def create_params_file(frags):
             frags_parameters.write("%s\t" % par)
         frags_parameters.write("\n")
     frags_parameters.close()
+    with open('frags_parameters', 'r') as params:
+        all_frags = params.readlines()
+    return all_frags
+
+
+def count_pdbs(folder):
+    return len([frag for frag in os.listdir('.') if
+                os.path.isfile(os.path.join(folder, frag))])
 
 
 def bad_frag(fragment):  # remove bad fragments
     print("Bad fragment. it will be saved in separate directory 'bad_fragments'")
-    if not os.path.exists('bad_fragments'):
-        os.makedirs('bad_fragments')
-    os.rename(fragment, 'bad_fragments/' + fragment)
+    if not os.path.exists(bad_frags_dir):
+        os.makedirs(bad_frags_dir)
+    os.rename(fragment, os.path.join(bad_frags_dir, fragment))
     return False
-
-
-# def review_frags(outfile, start, end):
-#     """Check if fragment length is correct and there are no zero occupancy atoms"""
-#     with open(outfile) as frag:
-#         residues = set()
-#         cur_line = frag.readline()
-#         while 'ATOM' not in cur_line[0:4]:  # find ATOM lines
-#             cur_line = frag.readline()
-#             # if there there no atoms...
-#             if not cur_line:
-#                 return bad_frag(outfile)
-#         cur_line = frag.readline()  # line with a first atom
-#         while cur_line[22:27].strip() != start:
-#             cur_line = frag.readline()
-#             # if there is no start residue
-#             if not cur_line:
-#                 return bad_frag(outfile)
-#         cur_line = frag.readline()  # first atom of the start residue
-#         while cur_line[22:27].strip() != end:
-#             # check occupancy
-#             if cur_line[54:60].strip() == 0.00:
-#                 print("Zero occupancy atoms")
-#                 return bad_frag(outfile)
-#             residues.add(cur_line[22:27])
-#             cur_line = frag.readline()
-#             # if there is no end residue
-#             if not cur_line:
-#                 return bad_frag(outfile)
-#         residues.add(cur_line[22:27])
-#     if len(residues) != (int(end) - int(start) + 1):
-#         bad_frag(outfile)
-#         return False
-#     else:
-#         return True
 
 
 def review_fasta_frag(outfile, sequence):
     """Review fragments that have different numbering and were extracted with fasta"""
+    if os.path.getsize(outfile) <= 0:
+        bad_frag(outfile)
     with open(outfile) as frag:
         residues = ''
         cur_line = frag.readline()
@@ -368,11 +344,9 @@ def extract_frag(pdb, start, end, outfile):
                     return
 
 
-def process_frags(pep_sequence):
+def process_frags(pep_sequence, fragments, add_frags_num=0):
     """Process and extract frags, filter bad fragments"""
-    # Open the frags_parameters, extract and append parameters to different lists
-    with open('frags_parameters', 'r') as f:
-        fragments = f.readlines()
+    # extract and append parameters to different lists
     pdbs = []
     chains = []
     start_res = []
@@ -395,7 +369,7 @@ def process_frags(pep_sequence):
 
     pdb_resfiles_dict = dict()  # names of pdbs and their resfiles
 
-    os.chdir('top_50_frags')
+    os.chdir(fragments_dir)
     print("**************Extracting fragments**************")
     # Fetch PDBs, extract fragments and create resfiles
     for pdb, chain, start, end, sequence in zip(pdbs, chains, start_res, end_res, sequences):
@@ -412,11 +386,6 @@ def process_frags(pep_sequence):
 
             print("Extracting fragment")
             is_frag_ok = False
-
-            # extract_frag(pdb_full, start, end, outfile)
-
-            # if not os.path.exists(outfile) or os.path.getsize(outfile) == 0:
-            # print("Trying to extract from FASTA")
 
             with open(fasta_name, 'r') as f:
                 fasta = f.read()
@@ -437,20 +406,16 @@ def process_frags(pep_sequence):
                 os.remove(pdb_full)
                 os.remove(fasta_name)
                 continue
-            # else:
-            #     is_frag_ok = review_frags(outfile, start, end)
             os.remove(pdb_full)
             os.remove(fasta_name)
 
             if is_frag_ok:
-                cur_dir = os.getcwd()
-                frags_count = len([frag for frag in os.listdir('.') if
-                                   os.path.isfile(os.path.join(cur_dir, frag))])
+                frags_count = count_pdbs(fragments_dir)
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, fasta_start, sequence, fragment_name)
                 pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
-                if frags_count >= 50:
-                    print("Got top 50 fragments")
+                if frags_count >= NUM_OF_FRAGS + add_frags_num:
+                    print("**************Finished with fragments**************")
                     break
             else:
                 continue
@@ -513,6 +478,29 @@ def create_xml(pdb_resfile_dict):
         xml_file.write('</JobDefinitionFile>')
 
 
+def check_designed_frags():
+    for frag in os.listdir('.'):
+        if os.path.splitext(os.path.basename(frag))[1] == '.pdb':
+            review_fasta_frag(frag, peptide_seq)
+    frags_count = count_pdbs(fixbb_dir)
+    if frags_count < NUM_OF_FRAGS + 3:
+        return NUM_OF_FRAGS + 3 - frags_count
+    else:
+        return False
+
+
+def extract_more_frags(n_frags):
+    os.chdir(fragments_dir)
+    with open(os.path.join(root, 'frags_parameters'), 'r') as param_file:
+        add_frags = param_file.readlines()
+    if os.path.isdir(bad_frags_dir):
+        bad_frags_shift = count_pdbs(bad_frags_dir)
+    else:
+        bad_frags_shift = 0
+    add_frags = add_frags[NUM_OF_FRAGS + bad_frags_shift:]
+    return process_frags(peptide_seq, add_frags, n_frags)
+
+
 def run_fixbb():
     """Run jd3_fixbb design (with option to restore talaris behaviour)"""
     os.chdir(fixbb_dir)
@@ -522,7 +510,14 @@ def run_fixbb():
     else:
         os.system(FIXBB_JD3.format('design.xml'))
     print("Done!")
-    os.chdir(root)
+    fragments_needed = check_designed_frags()
+    if not fragments_needed:
+        os.chdir(root)
+        return
+    else:
+        print("**************Some fragments were defective. Extracting more fragments**************")
+        create_xml(extract_more_frags(fragments_needed))
+        run_fixbb()
 
 
 def rename_chain(structure, chain_id):
@@ -533,7 +528,7 @@ def rename_chain(structure, chain_id):
     for line in pdb_lines:
         if line[0:4] != 'ATOM' and line[0:6] != 'HETATM':
             continue
-        if line[21].isalpha():
+        else:
             new_line = list(line)
             new_line[21] = chain_id
             renamed_struct.append(''.join(new_line))
@@ -543,29 +538,29 @@ def rename_chain(structure, chain_id):
             new_structure.write(new_chain_line)
 
 
-def process_for_piper(pdb_dict, receptor):
+def process_for_piper(receptor):
     """Prepare inputs for piper run"""
     # Create directory
+    frags_list = []
     if not os.path.exists(piper_dir):
         os.makedirs(piper_dir)
     print("**************Preparing PIPER inputs**************")
     for frag in os.listdir(fixbb_dir):
         if os.path.splitext(frag)[1] == '.pdb':   # Rename chain ID to 'B'
             rename_chain(os.path.join(fixbb_dir, frag), 'B')
-            os.system(COPY.format(os.path.join(fixbb_dir, frag), piper_dir))
+            frags_list.append(os.path.basename(frag))
+            # os.system(COPY.format(os.path.join(fixbb_dir, frag), piper_dir))
 
     with open(os.path.join(piper_dir, 'runs_list'), 'w') as runs_list:  # Create list 1 - 50
         for i in range(1, 51):
             runs_list.write("{:02}\n".format(i))
 
     # Create symlinks for piper run
-    ligands_dir = os.path.join(piper_dir, 'ligands/')
     if not os.path.exists(ligands_dir):
         os.makedirs(ligands_dir)
     lig_inx = 1
-    for frag_name in pdb_dict.keys():
-        designed_name = frag_name[:-4] + '_0001.pdb'
-        os.system('ln -s {} {}/lig.{:04}.pdb'.format(os.path.join(piper_dir, designed_name),
+    for frag_name in frags_list:
+        os.system('ln -s {} {}/lig.{:04}.pdb'.format(os.path.join(fixbb_dir, frag_name),
                                                      ligands_dir, lig_inx))
         lig_inx += 1
 
@@ -586,7 +581,6 @@ def process_for_piper(pdb_dict, receptor):
               name_for_piper)
     os.system(PDBPREP.format(name_for_piper))
     os.system(PDBNMD.format(name_for_piper))
-    print("Done preparing!")
     os.chdir(root)
 
 
@@ -722,10 +716,10 @@ def run_protocol(peptide_sequence, receptor):
 
     make_pick_fragments(peptide_sequence)
 
-    create_params_file(FRAGS_FILE.format(str(pep_length)))
+    all_frags = create_params_file(FRAGS_FILE.format(str(pep_length)))
 
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
-    pdb_and_resfiles = process_frags(peptide_seq)
+    pdb_and_resfiles = process_frags(peptide_seq, all_frags)
 
     create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
 
@@ -733,14 +727,14 @@ def run_protocol(peptide_sequence, receptor):
     run_fixbb()
 
     # process ligands and receptor for piper run
-    process_for_piper(pdb_and_resfiles, receptor)
+    process_for_piper(receptor)
 
     build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
 
-    # prepack_receptor(receptor)
+    prepack_receptor(receptor)
 
-    # # run piper docking and extract top 250 models
-    # run_piper_fpd(receptor)
+    # run piper docking and extract top 250 models
+    run_piper_fpd(receptor)
 
 if __name__ == "__main__":
 
@@ -768,9 +762,11 @@ if __name__ == "__main__":
     resfiles_dir = os.path.join(root, 'resfiles')
     fixbb_dir = os.path.join(fragments_dir, 'fixbb')
     piper_dir = os.path.join(root, 'piper')
+    ligands_dir = os.path.join(piper_dir, 'ligands')
     prepack_dir = os.path.join(root, 'prepacking')
     refinement_dir = os.path.join(root, 'refinement')
     clustering_dir = os.path.join(refinement_dir, 'clustering')
+    bad_frags_dir = 'bad_fragments'
 
     pep_length = len(peptide_seq)
 
