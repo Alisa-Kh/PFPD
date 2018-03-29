@@ -60,7 +60,8 @@ FPD_REFINEMENT_TALARIS = 'ls *gz >input_list\n' \
                          'mpirun ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
                          ' -database ' + ROSETTA_2016_DB + ' @refine_flags >refinement_log'
 
-CLUSTERING = '/vol/ek/Home/alisa/scripts/piper-fpd/cluster.sh'  # TODO: should we distribute this too?
+# TODO: should we distribute this too?
+CLUSTERING = '/vol/ek/Home/alisa/scripts/piper-fpd/cluster.sh 2.0 {native} {decoys}'
 
 # Commands (PIPER)
 
@@ -146,6 +147,7 @@ SBATCH_CLUSTERING = '#!/bin/bash\n' \
                     '#SBATCH --get-user-env\n' \
                     + CLUSTERING
 
+# 'dependency' in these commands will be changed to specific 'dependency=afterany$job_num' before run
 
 RUN_PIPER = ['sbatch', '--mem=1500m', '--nice=10000', 'run_piper']
 RUN_EXTRACT_DECOYS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_extract_decoys']
@@ -594,7 +596,7 @@ def build_peptide(pep):
     os.chdir(root)
 
 
-def create_batch(receptor, i, run):
+def create_batch(receptor, run, i=0):
     """Create batch scripts for jobs that will be sended to cluster, such as
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
     rec_name = os.path.join(piper_dir, receptor.lower() + '_nmin.pdb')
@@ -635,9 +637,9 @@ def run_piper_fpd(receptor):
         os.chdir(run_dir)
         os.system(COPY.format(os.path.join(piper_dir, 'ligands', 'lig.' + "{:04}".format(i) + '_nmin.pdb'),
                               'lig.' + "{:04}".format(i) + '_nmin.pdb'))
-        create_batch(receptor_name, i, 'piper')
-        create_batch(receptor_name, i, 'decoys')
-        create_batch(receptor_name, i, 'prepare_inputs')
+        create_batch(receptor_name, 'piper', i)
+        create_batch(receptor_name, 'decoys', i)
+        create_batch(receptor_name, 'prepare_inputs', i)
 
         # run PIPER docking, extract 250 top decoys, run refinement and clustering
         run_piper = subprocess.check_output(RUN_PIPER)
@@ -654,11 +656,11 @@ def run_piper_fpd(receptor):
     if not os.path.exists(refinement_dir):
         os.makedirs(refinement_dir)
     os.chdir(refinement_dir)
-    create_batch(receptor_name, 0, 'refinement')
+    create_batch(receptor_name, 'refinement')
     refine_flags_file()
     all_prep_jobs = ''
     for job_id in jobs_list:
-        all_prep_jobs += ':' + job_id
+        all_prep_jobs += ':' + job_id  # there are multiple job and a semicolon needs to be written between all of them
     RUN_REFINEMENT[1] = '--dependency=afterany%s' % all_prep_jobs
     run_refinement = subprocess.check_output(RUN_REFINEMENT)
     refinement_id = run_refinement.split()[-1]
@@ -667,7 +669,7 @@ def run_piper_fpd(receptor):
     if not os.path.exists(clustering_dir):
         os.makedirs(clustering_dir)
     os.chdir(clustering_dir)
-    create_batch(receptor, 0, 'clustering')
+    create_batch(receptor, 'clustering')
     RUN_CLUSTERING[1] = '--dependency=afterany:%s' % refinement_id
     subprocess.call(RUN_CLUSTERING)
     os.chdir(root)
