@@ -786,7 +786,7 @@ if __name__ == "__main__":
         if '-restore_talaris_behaviour' in sys.argv:
             talaris = True
         if '-native' in sys.argv:
-            native = sys.argv[sys.argv.index('-native') + 1]
+            native = os.path.abspath(sys.argv[sys.argv.index('-native') + 1])
 
     # Define all the directories that will be created:
     root = os.getcwd()
