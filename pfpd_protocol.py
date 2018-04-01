@@ -110,6 +110,7 @@ THREE_TO_ONE_AA = {'G': 'GLY',
                    'R': 'ARG',
                    'D': 'ASP',
                    'E': 'GLU'}
+
 NUM_OF_FRAGS = 50
 
 #####################################################################################
@@ -163,16 +164,7 @@ RUN_CLUSTERING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_clustering
 ######################################################################
 
 
-def make_pick_fragments(pep_seq):
-    """Run fragment picker"""
-    if not os.path.exists(frag_picker_dir):
-        os.makedirs(frag_picker_dir)
-    # Create fasta file:
-    with open(os.path.join(frag_picker_dir, 'xxxxx.fasta'), 'w') as fasta_file:
-        fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
-    os.chdir(frag_picker_dir)
-    print("**************Picking fragments**************")
-    os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+def fragments_flags_and_cfg():
     # Create psi_L1.cfg file:
     with open('psi_L1.cfg', 'w') as scores:
         scores.write('#score\tname\tpriority\twght\tmin_allowed\textras\n'
@@ -195,10 +187,6 @@ def make_pick_fragments(pep_seq):
                          '-mute\tcore.conformation\n'
                          '-mute\tcore.chemical\n'
                          '-mute\tprotocols.jumping')
-
-    os.system(FRAG_PICKER)
-    os.system(COPY.format(FRAGS_FILE.format(pep_length), root))
-    os.chdir(root)
 
 
 def prepack_flags_file(receptor):
@@ -224,27 +212,29 @@ def prepack_flags_file(receptor):
 
 def refine_flags_file():
     with open(os.path.join(refinement_dir, 'refine_flags'), 'w') as flags:
-        flags.write(('-in:file:l input_list\n'
-                     '-scorefile score.sc\n'
-                     '-out:pdb_gz\n'
-                     '-out:file:silent_struct_type binary\n'
-                     '-out:file:silent decoys.silent\n'
-                     '-min_receptor_bb\n'
-                     '-lowres_preoptimize\n'
-                     '-flexPepDocking:pep_refine\n'
-                     '-flexPepDocking:flexpep_score_only\n'
-                     '-ex1\n'
-                     '-ex2aro\n'
-                     '-use_input_sc\n'
-                     '-unboundrot {native}\n'
-                     '-mute protocols.moves.RigidBodyMover\n'
-                     '-mute core.chemical\n'
-                     '-mute core.scoring.etable\n'
-                     '-mute protocols.evalution\n'
-                     '-mute core.pack.rotamer_trials\n'
-                     '-mute protocols.abinitio.FragmentMover\n'
-                     '-mute core.fragment\n'
-                     '-mute protocols.jd2.PDBJobInputter').format(native=receptor_path))
+        flags.write('-in:file:l input_list\n'
+                    '-scorefile score.sc\n'
+                    '-out:pdb_gz\n'
+                    '-out:file:silent_struct_type binary\n'
+                    '-out:file:silent decoys.silent\n'
+                    '-min_receptor_bb\n'
+                    '-lowres_preoptimize\n'
+                    '-flexPepDocking:pep_refine\n'
+                    '-flexPepDocking:flexpep_score_only\n'
+                    '-ex1\n'
+                    '-ex2aro\n'
+                    '-use_input_sc\n'
+                    '-unboundrot {receptor}\n'
+                    '-mute protocols.moves.RigidBodyMover\n'
+                    '-mute core.chemical\n'
+                    '-mute core.scoring.etable\n'
+                    '-mute protocols.evalution\n'
+                    '-mute core.pack.rotamer_trials\n'
+                    '-mute protocols.abinitio.FragmentMover\n'
+                    '-mute core.fragment\n'
+                    '-mute protocols.jd2.PDBJobInputter'.format(receptor=receptor_path))
+        if native:
+            flags.write('-native {native}'.format(native=native))
 
 ######################################
 """End of flags creating functions"""
@@ -253,6 +243,22 @@ def refine_flags_file():
 ################################################
 """ATTENTION! Do not change the code below!!!"""
 ################################################
+
+
+def make_pick_fragments(pep_seq):
+    """Run fragment picker"""
+    if not os.path.exists(frag_picker_dir):
+        os.makedirs(frag_picker_dir)
+    # Create fasta file:
+    with open(os.path.join(frag_picker_dir, 'xxxxx.fasta'), 'w') as fasta_file:
+        fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
+    os.chdir(frag_picker_dir)
+    print("**************Picking fragments**************")
+    os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+    fragments_flags_and_cfg()  # Write flags files
+    os.system(FRAG_PICKER)  # Run fragment picker
+    os.system(COPY.format(FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
+    os.chdir(root)
 
 
 def create_params_file(frags):
@@ -365,8 +371,7 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
     if not os.path.exists(resfiles_dir):
         os.makedirs(resfiles_dir)
 
-    pdb_resfiles_dict = dict()  # names of pdbs and their resfiles
-
+    pdb_resfiles_dict = dict()  # pdbs and their resfiles
     os.chdir(fragments_dir)
     print("**************Extracting fragments**************")
     # Fetch PDBs, extract fragments and create resfiles
@@ -418,7 +423,7 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
             else:
                 continue
         else:
-            print("Failed to fetch pdb")  # The PDB could be obsolete
+            print("Failed to fetch pdb")  # The PDB can be obsolete
             continue  # if failed to fetch PDB
 
     os.chdir(root)
@@ -547,8 +552,6 @@ def process_for_piper(receptor):
         if os.path.splitext(frag)[1] == '.pdb':   # Rename chain ID to 'B'
             rename_chain(os.path.join(fixbb_dir, frag), 'B')
             frags_list.append(os.path.basename(frag))
-            # os.system(COPY.format(os.path.join(fixbb_dir, frag), piper_dir))
-
     with open(os.path.join(piper_dir, 'runs_list'), 'w') as runs_list:  # Create list 1 - 50
         for i in range(1, 51):
             runs_list.write("{:02}\n".format(i))
@@ -580,6 +583,7 @@ def process_for_piper(receptor):
     os.system(PDBPREP.format(name_for_piper))
     os.system(PDBNMD.format(name_for_piper))
     os.chdir(root)
+    return name_for_piper
 
 
 def build_peptide(pep):
@@ -601,7 +605,6 @@ def create_batch(receptor, run, i=0):
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
     rec_name = os.path.join(piper_dir, receptor.lower() + '_nmin.pdb')
     lig_name = 'lig.' + "{:04}".format(i) + '_nmin.pdb'
-    ppk_receptor = os.path.join(prepack_dir, os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb')
     if run == 'piper':
         with open('run_piper', 'w') as piper:
             piper.write(SBATCH_PIPER.format(r=rec_name, l=lig_name))
@@ -609,6 +612,7 @@ def create_batch(receptor, run, i=0):
         with open('run_extract_decoys', 'w') as extract_decoys:
             extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % lig_name)
     elif run == 'prepare_inputs':
+        ppk_receptor = os.path.join(prepack_dir, receptor)
         with open('run_prepare_fpd_inputs', 'w') as inputs:
             inputs.write(SBATCH_PREP_FPD_INPUT % (ppk_receptor, refinement_dir, refinement_dir))
     elif run == 'refinement':
@@ -618,15 +622,38 @@ def create_batch(receptor, run, i=0):
             else:
                 refinement.write(SBATCH_FPD.format(fpd_version=FPD_REFINEMENT))
     elif run == 'clustering':
-        with open(os.path.join(clustering_dir, 'run_clustering'), 'w') as clustering:
-            clustering.write(SBATCH_CLUSTERING.format(native=os.path.join(prepack_dir, 'start.pdb'),
-                                                      decoys=os.path.join(refinement_dir, 'decoys.silent')))
+        with open(os.path.join(clustering_dir, 'run_clustering'), 'w') as cluster:
+            if not native:
+                cluster.write(SBATCH_CLUSTERING.format(native=os.path.join(prepack_dir, 'start.pdb'),
+                                                       decoys=os.path.join(refinement_dir, 'decoys.silent')))
+            else:
+                cluster.write(SBATCH_CLUSTERING.format(native=native,
+                                                       decoys=os.path.join(refinement_dir, 'decoys.silent')))
 
 
-def run_piper_fpd(receptor):
+# def clustering(receptor, refinement_id):
+#     pdb_list = []
+#     with open('score.sc', 'r') as score_file:
+#         total_decoys = sum(1 for _ in score_file)
+#         clustering_pool_num = total_decoys / 100
+#         header = score_file.readline().split()
+#         reweighted_column = header.index('reweighted_sc')
+#         description_column = header.index('description')
+#
+#         with open('sorted.sc', 'w') as sorted_score:
+#             for line in sorted(score_file.readlines(), key=lambda sc_line: sc_line.split()[reweighted_column]):
+#                 sorted_score.write(line)
+#             for i in range(int(clustering_pool_num)):
+#                 pdb_list.append(sorted_score.readline().split()[description_column])
+#     with open('pdb_list', 'w') as pdbs:
+#         for decoy in pdb_list:
+#             pdbs.write(decoy + '\n')
+
+
+def run_piper_fpd(ppk_receptor):
     """Run PIPER, FPD and clustering"""
     print("**************Sending PIPER, FlexPepDock and clustering jobs**************")
-    receptor_name = os.path.splitext(os.path.basename(receptor))[0]
+    receptor_name = os.path.splitext(os.path.basename(receptor_path))[0]
     jobs_list = []
     # PIPER step
     os.chdir(piper_dir)
@@ -639,7 +666,7 @@ def run_piper_fpd(receptor):
                               'lig.' + "{:04}".format(i) + '_nmin.pdb'))
         create_batch(receptor_name, 'piper', i)
         create_batch(receptor_name, 'decoys', i)
-        create_batch(receptor_name, 'prepare_inputs', i)
+        create_batch(ppk_receptor, 'prepare_inputs', i)
 
         # run PIPER docking, extract 250 top decoys, run refinement and clustering
         run_piper = subprocess.check_output(RUN_PIPER)
@@ -669,7 +696,7 @@ def run_piper_fpd(receptor):
     if not os.path.exists(clustering_dir):
         os.makedirs(clustering_dir)
     os.chdir(clustering_dir)
-    create_batch(receptor, 'clustering')
+    create_batch(receptor_path, 'clustering')
     RUN_CLUSTERING[1] = '--dependency=afterany:%s' % refinement_id
     subprocess.call(RUN_CLUSTERING)
     os.chdir(root)
@@ -688,17 +715,18 @@ def combine_receptor_peptide(receptor, ligand, out):
                     combined.write(line)
 
 
-def prepack_receptor(receptor):
+def prepack_receptor(processed_receptor):
     """Prepack receptor for FlexPepDock run"""
     print("**************Prepacking receptor**************")
     os.chdir(prepack_dir)
+    receptor = os.path.join(piper_dir, processed_receptor)
     combine_receptor_peptide(receptor, 'peptide.pdb', 'start.pdb')
     prepack_flags_file(receptor)
     if talaris:
         os.system(PREPACK_TALARIS)
     else:
         os.system(PREPACK)
-    ppk_receptor = os.path.splitext(os.path.basename(receptor))[0] + '.ppk.pdb'
+    ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
     with open(ppk_receptor, 'w') as renamed_rec:
         with open('start_0001.pdb', 'r') as start:
             for line in start:
@@ -708,6 +736,7 @@ def prepack_receptor(receptor):
                 else:
                     continue
     print("Prepack done!")
+    return ppk_receptor
 
 
 def run_protocol(peptide_sequence, receptor):
@@ -725,36 +754,42 @@ def run_protocol(peptide_sequence, receptor):
     run_fixbb()
 
     # process ligands and receptor for piper run
-    process_for_piper(receptor)
+    processed_receptor = process_for_piper(receptor)  # only basename
 
     build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
 
-    prepack_receptor(receptor)
+    ppk_receptor = prepack_receptor(processed_receptor)
 
     # run piper docking and extract top 250 models
-    run_piper_fpd(receptor)
+    run_piper_fpd(ppk_receptor)
 
 if __name__ == "__main__":
 
     if len(sys.argv) < 3:
-        print('Usage:\n [receptor.pdb] [peptide_sequence] optional: [restore_talaris_behaviour]'
+        print('Usage:\n [receptor.pdb] [peptide_sequence]'
+              'optional: -native [native_structure] -restore_talaris_behaviour'
               '\nYou need to provide a pdb file for receptor and a text file with peptide sequence '
               '(up to 15 amino acids)\n'
-              'If you want to run it with talaris2014, add "restore_talaris_behaviour" option and make '
+              'If you want to run it with talaris2014, add "-restore_talaris_behaviour" option and make '
               'sure you have both 2016 and 2018 versions of Rosetta')
         sys.exit()
-
-    if len(sys.argv) == 4 and sys.argv[3] == 'restore_talaris_behaviour':
-        talaris = True
-    else:
-        talaris = False
 
     with open(sys.argv[2], 'r') as peptide:
         peptide_seq = peptide.readline().strip()
 
-    root = os.getcwd()
+    pep_length = len(peptide_seq)
+    receptor_path = os.path.abspath(sys.argv[1])
+
+    talaris = False
+    native = ''
+    if len(sys.argv) > 3:
+        if '-restore_talaris_behaviour' in sys.argv:
+            talaris = True
+        if '-native' in sys.argv:
+            native = sys.argv[sys.argv.index('-native') + 1]
 
     # Define all the directories that will be created:
+    root = os.getcwd()
     frag_picker_dir = os.path.join(root, 'frag_picker')
     fragments_dir = os.path.join(root, 'top_50_frags')
     resfiles_dir = os.path.join(root, 'resfiles')
@@ -765,9 +800,5 @@ if __name__ == "__main__":
     refinement_dir = os.path.join(root, 'refinement')
     clustering_dir = os.path.join(refinement_dir, 'clustering')
     bad_frags_dir = 'bad_fragments'
-
-    pep_length = len(peptide_seq)
-
-    receptor_path = os.path.abspath(sys.argv[1])
 
     run_protocol(peptide_seq, receptor_path)
