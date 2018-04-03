@@ -747,10 +747,10 @@ if __name__ == "__main__":
 
     if len(sys.argv) < 3:
         print('Usage:\n [receptor.pdb] [peptide_sequence]'
-              'optional: -native [native_structure] -restore_talaris_behaviour'
+              'optional: -native [native_structure] -restore_talaris_behavior'
               '\nYou need to provide a pdb file for receptor and a text file with peptide sequence '
               '(up to 15 amino acids)\n'
-              'If you want to run it with talaris2014, add "-restore_talaris_behaviour" option and make '
+              'If you want to run it with talaris2014, add "-restore_talaris_behavior" option and make '
               'sure you have both 2016 and 2018 versions of Rosetta')
         sys.exit()
 
@@ -763,7 +763,7 @@ if __name__ == "__main__":
     talaris = False
     native = ''
     if len(sys.argv) > 3:
-        if '-restore_talaris_behaviour' in sys.argv:
+        if '-restore_talaris_behavior' in sys.argv:
             talaris = True
         if '-native' in sys.argv:
             native = os.path.abspath(sys.argv[sys.argv.index('-native') + 1])
