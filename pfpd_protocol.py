@@ -19,8 +19,8 @@ ROSETTA_2016_BIN = os.path.join(ROSETTA_2016_DIR, 'main/source/bin/')
 
 ROSETTA_TOOLS = os.path.join(ROSETTA_DIR, 'tools/')
 
-# TODO: Path to make_fragments.pl
-MAKE_FRAGMENTS_DIR = '/vol/ek/Home/alisa/scripts/piper-fpd/'
+# TODO: Path to this script (and also make_fragments.pl, clustering.py)
+PFPD_SCRIPTS = '/vol/ek/Home/alisa/scripts/piper-fpd/'
 
 PIPER_DIR = '/vol/ek/Home/alisa/PIPER/'
 PIPER_BIN = os.path.join(PIPER_DIR, 'bin/')
@@ -42,7 +42,7 @@ FIXBB_JD3_TALARIS = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiser
 BUILD_PEPTIDE = os.path.join(ROSETTA_BIN, 'BuildPeptide.linuxgccrelease') + ' -in:file:fasta {}' \
                 ' -database ' + ROSETTA_DB + ' -out:file:o peptide.pdb > build_peptide.log'
 
-MAKE_FRAGMENTS = 'perl ' + os.path.join(MAKE_FRAGMENTS_DIR, 'make_fragments.pl') + \
+MAKE_FRAGMENTS = 'perl ' + os.path.join(PFPD_SCRIPTS, 'make_fragments.pl') + \
                  ' -verbose -id xxxxx {} 2>log'
 
 FRAG_PICKER = os.path.join(ROSETTA_BIN, 'fragment_picker.linuxgccrelease') + \
@@ -60,8 +60,7 @@ FPD_REFINEMENT_TALARIS = 'ls *gz >input_list\n' \
                          'mpirun ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
                          ' -database ' + ROSETTA_2016_DB + ' @refine_flags >refinement_log'
 
-# TODO: should we distribute this too?
-CLUSTERING = '/vol/ek/Home/alisa/scripts/piper-fpd/cluster.sh 2.0 {native} {decoys}'
+CLUSTERING = PFPD_SCRIPTS + 'clustering_prep.py 2.0 {native} {decoys}'
 
 # Commands (PIPER)
 
@@ -629,25 +628,6 @@ def create_batch(receptor, run, i=0):
             else:
                 cluster.write(SBATCH_CLUSTERING.format(native=native,
                                                        decoys=os.path.join(refinement_dir, 'decoys.silent')))
-
-
-# def clustering(receptor, refinement_id):
-#     pdb_list = []
-#     with open('score.sc', 'r') as score_file:
-#         total_decoys = sum(1 for _ in score_file)
-#         clustering_pool_num = total_decoys / 100
-#         header = score_file.readline().split()
-#         reweighted_column = header.index('reweighted_sc')
-#         description_column = header.index('description')
-#
-#         with open('sorted.sc', 'w') as sorted_score:
-#             for line in sorted(score_file.readlines(), key=lambda sc_line: sc_line.split()[reweighted_column]):
-#                 sorted_score.write(line)
-#             for i in range(int(clustering_pool_num)):
-#                 pdb_list.append(sorted_score.readline().split()[description_column])
-#     with open('pdb_list', 'w') as pdbs:
-#         for decoy in pdb_list:
-#             pdbs.write(decoy + '\n')
 
 
 def run_piper_fpd(ppk_receptor):
