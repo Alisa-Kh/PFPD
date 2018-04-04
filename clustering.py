@@ -9,7 +9,7 @@ radius = sys.argv[1]
 native = sys.argv[2]
 silent_input = sys.argv[3]
 
-HEADER = 'Decoy_ID\tCluster_N\tMember_ID\tI_sc\tReweighted_sc'
+HEADER = 'DecoyID\tClusterN\tMemberID\tI_sc\tReweighted_sc'
 
 
 def create_pdb_list():

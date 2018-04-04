@@ -159,7 +159,7 @@ RUN_CLUSTERING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_clustering
 
 ######################################################################
 """It is not recommended to change the flags, unless you know what you 
- are doing. If you do, flags can be changed in the next 2 functions"""
+ are doing. If you do, flags can be changed in the next 3 functions"""
 ######################################################################
 
 
@@ -169,7 +169,7 @@ def fragments_flags_and_cfg():
         scores.write('#score\tname\tpriority\twght\tmin_allowed\textras\n'
                      'SecondarySimilarity\t350\t2.0\t-\tpsipred\n'
                      'ProfileScoreL1\t200\t1.0\t-\n')
-    # Write flags
+    # Write flags file
     with open('flags', 'w') as flags_file:
         flags_file.write('-in:file:vall\t' + ROSETTA_TOOLS +
                          'fragment_tools/vall.jul19.2011.gz\n'
@@ -235,10 +235,6 @@ def refine_flags_file():
         if native:
             flags.write('-native {native}'.format(native=native))
 
-######################################
-"""End of flags creating functions"""
-######################################
-
 ################################################
 """ATTENTION! Do not change the code below!!!"""
 ################################################
@@ -296,11 +292,13 @@ def create_params_file(frags):
 
 
 def count_pdbs(folder):
+    """Count files in a directory"""
     return len([frag for frag in os.listdir('.') if
                 os.path.isfile(os.path.join(folder, frag))])
 
 
-def bad_frag(fragment):  # remove bad fragments
+def bad_frag(fragment):
+    """Move bad fragment to separate directory"""
     print("Bad fragment. it will be saved in separate directory 'bad_fragments'")
     if not os.path.exists(bad_frags_dir):
         os.makedirs(bad_frags_dir)
@@ -308,8 +306,9 @@ def bad_frag(fragment):  # remove bad fragments
     return False
 
 
-def review_fasta_frag(outfile, sequence):
-    """Review fragments that have different numbering and were extracted with fasta"""
+def review_frag(outfile, sequence):
+    """Check whether fragment is of a right length, right sequence and
+    does not contain zero occupancy atoms. Otherwise move to 'bad_fragments' directory."""
     if os.path.getsize(outfile) <= 0:
         bad_frag(outfile)
     with open(outfile) as frag:
@@ -381,13 +380,11 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
             chain = 'A'
         os.system(GET_PDB.format(pdb, chain))  # get and clean pdb and fasta
 
-        pdb_full = '{}_{}.pdb'.format(pdb.upper(), chain)
+        pdb_full = '{}_{}.pdb'.format(pdb.upper(), chain)  # names from clean_pdb
         fasta_name = '{}_{}.fasta'.format(pdb.upper(), chain)
 
         if os.path.exists(pdb_full):
-
             print("Extracting fragment")
-            is_frag_ok = False
 
             with open(fasta_name, 'r') as f:
                 fasta = f.read()
@@ -400,18 +397,9 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
 
             extract_frag(pdb_full, str(fasta_start), str(fasta_end), outfile)
 
-            is_frag_ok = review_fasta_frag(outfile, sequence)
+            is_frag_ok = review_frag(outfile, sequence)
             if is_frag_ok:
                 print("success!")
-            else:
-                print("Failed to extract fragment")
-                os.remove(pdb_full)
-                os.remove(fasta_name)
-                continue
-            os.remove(pdb_full)
-            os.remove(fasta_name)
-
-            if is_frag_ok:
                 frags_count = count_pdbs(fragments_dir)
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, fasta_start, sequence, fragment_name)
@@ -420,11 +408,15 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
                     print("**************Finished with fragments**************")
                     break
             else:
+                print("Failed to extract fragment")  # or the fragment went to bad_fragments
+                os.remove(pdb_full)
+                os.remove(fasta_name)
                 continue
+            os.remove(pdb_full)
+            os.remove(fasta_name)
         else:
             print("Failed to fetch pdb")  # The PDB can be obsolete
             continue  # if failed to fetch PDB
-
     os.chdir(root)
     return pdb_resfiles_dict
 
@@ -481,9 +473,10 @@ def create_xml(pdb_resfile_dict):
 
 
 def check_designed_frags():
+    """Review fragments after design"""
     for frag in os.listdir('.'):
         if os.path.splitext(os.path.basename(frag))[1] == '.pdb':
-            review_fasta_frag(frag, peptide_seq)
+            review_frag(frag, peptide_seq)
     frags_count = count_pdbs(fixbb_dir)
     if frags_count < NUM_OF_FRAGS + 3:
         return NUM_OF_FRAGS + 3 - frags_count
@@ -492,6 +485,7 @@ def check_designed_frags():
 
 
 def extract_more_frags(n_frags):
+    """If there were wrong fragments after fixbb design"""
     os.chdir(fragments_dir)
     with open(os.path.join(root, 'frags_parameters'), 'r') as param_file:
         add_frags = param_file.readlines()
@@ -523,7 +517,7 @@ def run_fixbb():
 
 
 def rename_chain(structure, chain_id):
-    """Rename chain id of a given structure"""
+    """Rename chain id of a structure"""
     renamed_struct = []
     with open(structure, 'r') as pdb:
         pdb_lines = pdb.readlines()
@@ -542,9 +536,8 @@ def rename_chain(structure, chain_id):
 
 def process_for_piper(receptor):
     """Prepare inputs for piper run"""
-    # Create directory
     frags_list = []
-    if not os.path.exists(piper_dir):
+    if not os.path.exists(piper_dir):  # Create directory
         os.makedirs(piper_dir)
     print("**************Preparing PIPER inputs**************")
     for frag in os.listdir(fixbb_dir):
@@ -600,7 +593,7 @@ def build_peptide(pep):
 
 
 def create_batch(receptor, run, i=0):
-    """Create batch scripts for jobs that will be sended to cluster, such as
+    """Create batch scripts for jobs that will be sent to cluster, such as
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
     rec_name = os.path.join(piper_dir, receptor.lower() + '_nmin.pdb')
     lig_name = 'lig.' + "{:04}".format(i) + '_nmin.pdb'
