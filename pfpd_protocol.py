@@ -60,7 +60,7 @@ FPD_REFINEMENT_TALARIS = 'ls *gz >input_list\n' \
                          'mpirun ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
                          ' -database ' + ROSETTA_2016_DB + ' @refine_flags >refinement_log'
 
-CLUSTERING = PFPD_SCRIPTS + 'clustering_prep.py 2.0 {native} {decoys}'
+CLUSTERING = PFPD_SCRIPTS + 'clustering.py 2.0 {native} {decoys}'
 
 # Commands (PIPER)
 
