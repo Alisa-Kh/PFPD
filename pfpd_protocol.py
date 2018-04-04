@@ -294,7 +294,8 @@ def create_params_file(frags):
 def count_pdbs(folder):
     """Count files in a directory"""
     return len([frag for frag in os.listdir('.') if
-                os.path.isfile(os.path.join(folder, frag))])
+                os.path.isfile(os.path.join(folder, frag)) and
+                os.path.splitext(os.path.basename(frag))[1] == '.pdb'])
 
 
 def bad_frag(fragment):
@@ -400,6 +401,8 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
             is_frag_ok = review_frag(outfile, sequence)
             if is_frag_ok:
                 print("success!")
+                os.remove(pdb_full)
+                os.remove(fasta_name)
                 frags_count = count_pdbs(fragments_dir)
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, fasta_start, sequence, fragment_name)
@@ -412,8 +415,6 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
                 os.remove(pdb_full)
                 os.remove(fasta_name)
                 continue
-            os.remove(pdb_full)
-            os.remove(fasta_name)
         else:
             print("Failed to fetch pdb")  # The PDB can be obsolete
             continue  # if failed to fetch PDB
@@ -478,21 +479,21 @@ def check_designed_frags():
         if os.path.splitext(os.path.basename(frag))[1] == '.pdb':
             review_frag(frag, peptide_seq)
     frags_count = count_pdbs(fixbb_dir)
-    if frags_count < NUM_OF_FRAGS + 3:
-        return NUM_OF_FRAGS + 3 - frags_count
+    if frags_count < NUM_OF_FRAGS:
+        return NUM_OF_FRAGS - frags_count
     else:
         return False
 
 
-def extract_more_frags(n_frags):
+def extract_more_frags(n_frags, defective_from_fixbb):
     """If there were wrong fragments after fixbb design"""
     os.chdir(fragments_dir)
     with open(os.path.join(root, 'frags_parameters'), 'r') as param_file:
         add_frags = param_file.readlines()
     if os.path.isdir(bad_frags_dir):
-        bad_frags_shift = count_pdbs(bad_frags_dir)
+        bad_frags_shift = count_pdbs(bad_frags_dir) + defective_from_fixbb
     else:
-        bad_frags_shift = 0
+        bad_frags_shift = defective_from_fixbb
     add_frags = add_frags[NUM_OF_FRAGS + bad_frags_shift:]
     return process_frags(peptide_seq, add_frags, n_frags)
 
@@ -506,13 +507,22 @@ def run_fixbb():
     else:
         os.system(FIXBB_JD3.format('design.xml'))
     print("Done!")
+    # If we need to extract additional fragments for more then once, we need to add bad fragments
+    # to frags_file shift also (but only starting from second time)
+    if os.path.isdir(bad_frags_dir):
+        already_defective = count_pdbs(bad_frags_dir)
+    else:
+        already_defective = 0
+    # check frags and return False if all of them are OK, or number of defective fragments
     fragments_needed = check_designed_frags()
     if not fragments_needed:
         os.chdir(root)
         return
     else:
         print("**************Some fragments were defective. Extracting more fragments**************")
-        create_xml(extract_more_frags(fragments_needed))
+        # extract more frags and create a new dictionary for creating an xml
+        new_frag_resfile_dict = extract_more_frags(fragments_needed, already_defective)
+        create_xml(new_frag_resfile_dict)
         run_fixbb()
 
 
@@ -623,13 +633,14 @@ def create_batch(receptor, run, i=0):
                                                        decoys=os.path.join(refinement_dir, 'decoys.silent')))
 
 
-def run_piper_fpd(ppk_receptor):
+def run_piper_fpd(processed_receptor):
     """Run PIPER, FPD and clustering"""
     print("**************Sending PIPER, FlexPepDock and clustering jobs**************")
     receptor_name = os.path.splitext(os.path.basename(receptor_path))[0]
     jobs_list = []
     # PIPER step
     os.chdir(piper_dir)
+    ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
     for i in range(1, 51):
         run_dir = "{:02}".format(i)
         if not os.path.exists(run_dir):
@@ -731,10 +742,10 @@ def run_protocol(peptide_sequence, receptor):
 
     build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
 
-    ppk_receptor = prepack_receptor(processed_receptor)
+    prepack_receptor(processed_receptor)
 
     # run piper docking and extract top 250 models
-    run_piper_fpd(ppk_receptor)
+    run_piper_fpd(processed_receptor)
 
 if __name__ == "__main__":
 
@@ -742,13 +753,17 @@ if __name__ == "__main__":
         print('Usage:\n [receptor.pdb] [peptide_sequence]'
               'optional: -native [native_structure] -restore_talaris_behavior'
               '\nYou need to provide a pdb file for receptor and a text file with peptide sequence '
-              '(up to 15 amino acids)\n'
+              '(or FASTA file)\n'
               'If you want to run it with talaris2014, add "-restore_talaris_behavior" option and make '
               'sure you have both 2016 and 2018 versions of Rosetta')
         sys.exit()
 
     with open(sys.argv[2], 'r') as peptide:
-        peptide_seq = peptide.readline().strip()
+        peptide_seq = peptide.readlines()
+        if peptide_seq[0][0] == '>':
+            peptide_seq = peptide_seq[1].strip()
+        else:
+            peptide_seq = peptide_seq[0].strip()
 
     pep_length = len(peptide_seq)
     receptor_path = os.path.abspath(sys.argv[1])
