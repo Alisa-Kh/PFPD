@@ -19,7 +19,7 @@ ROSETTA_2016_BIN = os.path.join(ROSETTA_2016_DIR, 'main/source/bin/')
 
 ROSETTA_TOOLS = os.path.join(ROSETTA_DIR, 'tools/')
 
-# TODO: Path to this script (and also make_fragments.pl, clustering.py)
+# Path to this script (and also make_fragments.pl, clustering.py)
 PFPD_SCRIPTS = '/vol/ek/Home/alisa/scripts/piper-fpd/'
 
 PIPER_DIR = '/vol/ek/Home/alisa/PIPER/'
@@ -293,7 +293,7 @@ def create_params_file(frags):
 
 def count_pdbs(folder):
     """Count files in a directory"""
-    return len([frag for frag in os.listdir('.') if
+    return len([frag for frag in os.listdir(folder) if
                 os.path.isfile(os.path.join(folder, frag)) and
                 os.path.splitext(os.path.basename(frag))[1] == '.pdb'])
 
@@ -625,12 +625,8 @@ def create_batch(receptor, run, i=0):
                 refinement.write(SBATCH_FPD.format(fpd_version=FPD_REFINEMENT))
     elif run == 'clustering':
         with open(os.path.join(clustering_dir, 'run_clustering'), 'w') as cluster:
-            if not native:
-                cluster.write(SBATCH_CLUSTERING.format(native=os.path.join(prepack_dir, 'start.pdb'),
-                                                       decoys=os.path.join(refinement_dir, 'decoys.silent')))
-            else:
-                cluster.write(SBATCH_CLUSTERING.format(native=native,
-                                                       decoys=os.path.join(refinement_dir, 'decoys.silent')))
+            cluster.write(SBATCH_CLUSTERING.format(native=os.path.join(prepack_dir, 'start.pdb'),
+                                                   decoys=os.path.join(refinement_dir, 'decoys.silent')))
 
 
 def run_piper_fpd(processed_receptor):
@@ -703,14 +699,17 @@ def prepack_receptor(processed_receptor):
     """Prepack receptor for FlexPepDock run"""
     print("**************Prepacking receptor**************")
     os.chdir(prepack_dir)
+    ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
     receptor = os.path.join(piper_dir, processed_receptor)
     combine_receptor_peptide(receptor, 'peptide.pdb', 'start.pdb')
     prepack_flags_file(receptor)
+    if os.path.isfile(ppk_receptor):            # No need to prepack the same receptor again
+        print("Prepacked receptor already exists")
+        return
     if talaris:
         os.system(PREPACK_TALARIS)
     else:
         os.system(PREPACK)
-    ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
     with open(ppk_receptor, 'w') as renamed_rec:
         with open('start_0001.pdb', 'r') as start:
             for line in start:
@@ -720,7 +719,6 @@ def prepack_receptor(processed_receptor):
                 else:
                     continue
     print("Prepack done!")
-    return ppk_receptor
 
 
 def run_protocol(peptide_sequence, receptor):
@@ -750,8 +748,8 @@ def run_protocol(peptide_sequence, receptor):
 if __name__ == "__main__":
 
     if len(sys.argv) < 3:
-        print('Usage:\n [receptor.pdb] [peptide_sequence]'
-              'optional: -native [native_structure] -restore_talaris_behavior'
+        print('Usage:\n [receptor.pdb] [peptide_sequence]\n'
+              'optional: -native [native_structure] -restore_talaris_behavior\n'
               '\nYou need to provide a pdb file for receptor and a text file with peptide sequence '
               '(or FASTA file)\n'
               'If you want to run it with talaris2014, add "-restore_talaris_behavior" option and make '
@@ -769,6 +767,7 @@ if __name__ == "__main__":
     receptor_path = os.path.abspath(sys.argv[1])
 
     talaris = False
+    prepack = True
     native = ''
     if len(sys.argv) > 3:
         if '-restore_talaris_behavior' in sys.argv:
