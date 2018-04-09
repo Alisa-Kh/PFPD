@@ -9,7 +9,9 @@ radius = sys.argv[1]
 native = sys.argv[2]
 silent_input = sys.argv[3]
 
-HEADER = 'DecoyID\tClusterN\tMemberID\tI_sc\tReweighted_sc'
+HEADER = 'DecoyID\t\tClusterN\tMemberID I_sc\tReweighted_sc'
+FINAL_DIR = 'FINAL_RESULTS'
+CLUSTERING_DIR = os.getcwd()
 
 
 def create_pdb_list():
@@ -89,7 +91,21 @@ def results_processing(clustering_pool_num):
     os.system('sort -nk 5 cluster_list_sc | sort -u -k2,2 | '
               'sort -nk 5 | head -20 >>cluster_list_reweighted_sc_sorted')
 
+
+def collect_results():
+    if not os.path.exists(FINAL_DIR):
+        os.makedirs(FINAL_DIR)
+    os.system(protocol.COPY.format(os.path.join(CLUSTERING_DIR, 'cluster_list_reweighted_sc_sorted'),
+                                   FINAL_DIR))
+    with open(os.path.join(FINAL_DIR, 'cluster_list_reweighted_sc_sorted')) as top_reweighted:
+        top_reweighted.readline()
+        for i in range(10):
+            cur_line = top_reweighted.readline().split()
+            struct = 'c.{cluster}.{member}.pdb'.format(cluster=cur_line[1], member=cur_line[2])
+            os.system(protocol.COPY.format(os.path.join(CLUSTERING_DIR, struct), FINAL_DIR))
+
 clustering_pool = create_pdb_list()
 actual_radius = define_actual_r()
 run_clustering(actual_radius)
 results_processing(clustering_pool)
+collect_results()

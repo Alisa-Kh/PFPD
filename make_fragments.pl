@@ -47,7 +47,7 @@ my $samDir     = "/vol/ek/share/src/sam3.5.i686-linux/bin";
 # psi-blast
 my $PSIBLAST      = "$blastDir/blastpgp";                              # PSI-BLAST (duh.)
 my $NR            = "$nrDir/nr";                                       # nr blast database filename
-my $VALL_BLAST_DB = "$fragsDir/nnmake_database/vall.blast.2006-05-05"; # vall blast database filename (cvs respository 'nnmake_database')
+my $VALL_BLAST_DB = "$fragsDir/nnmake_database/vall.blast.2011-07-19"; # vall blast database filename (cvs respository 'nnmake_database')
 my $BLOSUM        = "$fragsDir/nnmake_database/";                      # BLOSUM score matrices directory (cvs repository 'nnmake_database')
 
 # psipred
@@ -60,7 +60,7 @@ my $PSIPRED_DATA = "$psiPredDir/data";         # dir containing psipred data fil
 # nnmake
 my $VALL      = "$fragsDir/nnmake_database";    # dir containing vall database (cvs repository 'nnmake_database')
 my $VALL2     = "$fragsDir/nnmake_database";    # alt dir containing vall database (cvs repository 'nnmake_database')
-my $VALL_NAME = "vall.dat.2006-05-05";          # filename of vall (vall.dat.<id> and vall_cst_coord.dat.<id> must exist)
+my $VALL_NAME = "vall.jul19.2011";          # filename of vall (vall.dat.<id> and vall_cst_coord.dat.<id> must exist)
 my $NNMAKE    = "/vol/ek/liorz06/ProtocolCapture/FlexPepDock_AbInitio/scripts/frags/make.sh";                         # nnmake binary  (cvs respository 'nnmake')
 my $TRIMLOOPS = "$fragsDir/nnmake/trimLoopLibrary.pl";                  # trimLoopLibrary.pl (cvs respository 'nnmake')
 

@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import argparse
 import sys
 import os
 import subprocess
@@ -20,6 +21,7 @@ ROSETTA_2016_BIN = os.path.join(ROSETTA_2016_DIR, 'main/source/bin/')
 ROSETTA_TOOLS = os.path.join(ROSETTA_DIR, 'tools/')
 
 # Path to this script (and also make_fragments.pl, clustering.py)
+# Change paths also in make_fragments.pl script itself
 PFPD_SCRIPTS = '/vol/ek/Home/alisa/scripts/piper-fpd/'
 
 PIPER_DIR = '/vol/ek/Home/alisa/PIPER/'
@@ -112,6 +114,15 @@ THREE_TO_ONE_AA = {'G': 'GLY',
 
 NUM_OF_FRAGS = 50
 
+OPTIONS_LIST = ['-native', '-restore_talaris_behavior', '-receptor_min']
+
+USAGE = 'Usage:\n [receptor.pdb] [peptide_sequence]\n' \
+        'optional: -native [native_structure] -restore_talaris_behavior -receptor_min\n' \
+        '\nYou need to provide a pdb file for receptor and a text file with peptide sequence ' \
+        '(or FASTA file)\n' \
+        'If you want to run it with talaris2014, add "-restore_talaris_behavior" option and make ' \
+        'sure you have both - 2016 and current versions of Rosetta'
+
 #####################################################################################
 """WE are using SLURM workload manager. If you are not - change the commands below"""
 #####################################################################################
@@ -149,7 +160,7 @@ SBATCH_CLUSTERING = '#!/bin/bash\n' \
 
 # 'dependency' in these commands will be changed to specific 'dependency=afterany$job_num' before run
 
-RUN_PIPER = ['sbatch', '--mem=1500m', '--nice=10000', 'run_piper']
+RUN_PIPER = ['sbatch', '--mem=1500m', 'run_piper']
 RUN_EXTRACT_DECOYS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_extract_decoys']
 RUN_PREP_FPD_INPUTS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_prepare_fpd_inputs']
 RUN_REFINEMENT = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_refinement']
@@ -169,7 +180,7 @@ def fragments_flags_and_cfg():
         scores.write('#score\tname\tpriority\twght\tmin_allowed\textras\n'
                      'SecondarySimilarity\t350\t2.0\t-\tpsipred\n'
                      'ProfileScoreL1\t200\t1.0\t-\n')
-    # Write flags file
+    # Write flags files
     with open('flags', 'w') as flags_file:
         flags_file.write('-in:file:vall\t' + ROSETTA_TOOLS +
                          'fragment_tools/vall.jul19.2011.gz\n'
@@ -216,7 +227,6 @@ def refine_flags_file():
                     '-out:pdb_gz\n'
                     '-out:file:silent_struct_type binary\n'
                     '-out:file:silent decoys.silent\n'
-                    '-min_receptor_bb\n'
                     '-lowres_preoptimize\n'
                     '-flexPepDocking:pep_refine\n'
                     '-flexPepDocking:flexpep_score_only\n'
@@ -232,6 +242,8 @@ def refine_flags_file():
                     '-mute protocols.abinitio.FragmentMover\n'
                     '-mute core.fragment\n'
                     '-mute protocols.jd2.PDBJobInputter'.format(receptor=receptor_path))
+        if minimization:
+            flags.write('-min_receptor_bb\n')
         if native:
             flags.write('-native {native}'.format(native=native))
 
@@ -355,6 +367,9 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
     start_res = []
     end_res = []
     sequences = []
+    # Start and end residues numbers will not be used for fragment extraction - the fragments will be extracted
+    # from fasta of sequentially renumbered pdb. Both, fasta file and renumbered pdb, are output of clean_pdb.py
+    # However, these numbers will be used in fragment and it's resfile names
     for frag in fragments:
         pdbs.append(frag.split()[0])
         chains.append(frag.split()[1])
@@ -379,9 +394,9 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
         outfile = fragment_name + '.pdb'
         if chain == '_':
             chain = 'A'
-        os.system(GET_PDB.format(pdb, chain))  # get and clean pdb and fasta
+        os.system(GET_PDB.format(pdb, chain))  # get clean pdb and it's fasta
 
-        pdb_full = '{}_{}.pdb'.format(pdb.upper(), chain)  # names from clean_pdb
+        pdb_full = '{}_{}.pdb'.format(pdb.upper(), chain)  # names of clean_pdb output files
         fasta_name = '{}_{}.fasta'.format(pdb.upper(), chain)
 
         if os.path.exists(pdb_full):
@@ -390,6 +405,7 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
             with open(fasta_name, 'r') as f:
                 fasta = f.read()
             clean_fasta = fasta[fasta.find('\n') + 1:]
+            # These fasta_start and fasta_end numbers are only temporary numbers for fragments extraction
             fasta_start = clean_fasta.find(sequence) + 1  # +1 because of zero-based numbering
             if fasta_start == 0:  # -1 would mean 'sequence doesn't exist', but we added 1
                 print("no matching sequence")
@@ -602,6 +618,45 @@ def build_peptide(pep):
     os.chdir(root)
 
 
+def combine_receptor_peptide(receptor, ligand, out):
+    """Put together receptor and ligand"""
+    with open(out, 'w') as combined:
+        with open(receptor, 'r') as rcptr:
+            for line in rcptr:
+                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
+                    combined.write(line)
+        with open(ligand, 'r') as lig:
+            for line in lig:
+                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
+                    combined.write(line)
+
+
+def prepack_receptor(processed_receptor):
+    """Prepack receptor for FlexPepDock run"""
+    print("**************Prepacking receptor**************")
+    os.chdir(prepack_dir)
+    ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
+    receptor = os.path.join(piper_dir, processed_receptor)
+    combine_receptor_peptide(receptor, 'peptide.pdb', 'start.pdb')
+    prepack_flags_file(receptor)
+    if os.path.isfile(ppk_receptor):            # No need to prepack the same receptor again
+        print("Prepacked receptor already exists")
+        return
+    if talaris:
+        os.system(PREPACK_TALARIS)
+    else:
+        os.system(PREPACK)
+    with open(ppk_receptor, 'w') as renamed_rec:
+        with open('start_0001.pdb', 'r') as start:
+            for line in start:
+                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
+                    if line[21] == 'A':
+                        renamed_rec.write(line)
+                else:
+                    continue
+    print("Prepack done!")
+
+
 def create_batch(receptor, run, i=0):
     """Create batch scripts for jobs that will be sent to cluster, such as
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
@@ -680,45 +735,7 @@ def run_piper_fpd(processed_receptor):
     RUN_CLUSTERING[1] = '--dependency=afterany:%s' % refinement_id
     subprocess.call(RUN_CLUSTERING)
     os.chdir(root)
-
-
-def combine_receptor_peptide(receptor, ligand, out):
-    """Put together receptor and ligand"""
-    with open(out, 'w') as combined:
-        with open(receptor, 'r') as rcptr:
-            for line in rcptr:
-                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
-                    combined.write(line)
-        with open(ligand, 'r') as lig:
-            for line in lig:
-                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
-                    combined.write(line)
-
-
-def prepack_receptor(processed_receptor):
-    """Prepack receptor for FlexPepDock run"""
-    print("**************Prepacking receptor**************")
-    os.chdir(prepack_dir)
-    ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
-    receptor = os.path.join(piper_dir, processed_receptor)
-    combine_receptor_peptide(receptor, 'peptide.pdb', 'start.pdb')
-    prepack_flags_file(receptor)
-    if os.path.isfile(ppk_receptor):            # No need to prepack the same receptor again
-        print("Prepacked receptor already exists")
-        return
-    if talaris:
-        os.system(PREPACK_TALARIS)
-    else:
-        os.system(PREPACK)
-    with open(ppk_receptor, 'w') as renamed_rec:
-        with open('start_0001.pdb', 'r') as start:
-            for line in start:
-                if line[0:4] == 'ATOM' or line[0:6] == 'HETATM':
-                    if line[21] == 'A':
-                        renamed_rec.write(line)
-                else:
-                    continue
-    print("Prepack done!")
+    os.makedirs(final_dir)
 
 
 def run_protocol(peptide_sequence, receptor):
@@ -742,21 +759,30 @@ def run_protocol(peptide_sequence, receptor):
 
     prepack_receptor(processed_receptor)
 
-    # run piper docking and extract top 250 models
+    # run piper docking, extract top 250 models from each run, run FlexPepDock, clustering and get top 10 models
     run_piper_fpd(processed_receptor)
+
 
 if __name__ == "__main__":
 
-    if len(sys.argv) < 3:
-        print('Usage:\n [receptor.pdb] [peptide_sequence]\n'
-              'optional: -native [native_structure] -restore_talaris_behavior\n'
-              '\nYou need to provide a pdb file for receptor and a text file with peptide sequence '
-              '(or FASTA file)\n'
-              'If you want to run it with talaris2014, add "-restore_talaris_behavior" option and make '
-              'sure you have both 2016 and 2018 versions of Rosetta')
-        sys.exit()
+    parser = argparse.ArgumentParser(description='You need to provide a pdb file for receptor '
+                                                 'and a text file with peptide sequence (or FASTA file)\n'
+                                                 '\nIf you want to run it with talaris2014, add '
+                                                 '"--restore_talaris_behavior" option and make sure you have'
+                                                 ' both - 2016 and current versions of Rosetta.\n'
+                                                 'For running FlexPepDock with receptor minimization add '
+                                                 '"--receptor_min" flag.\nIf available, provide a complex structure '
+                                                 'with "--native" flag for RMSD calculation in FlexPepDock step.')
 
-    with open(sys.argv[2], 'r') as peptide:
+    parser.add_argument('receptor')
+    parser.add_argument('peptide_sequence')
+    parser.add_argument('--restore_talaris_behavior', dest='talaris', action='store_true', default=False)
+    parser.add_argument('--receptor_min', dest='minimize_receptor', action='store_true', default=False)
+    parser.add_argument('--native', dest='native_structure', default=None)
+
+    arguments = parser.parse_args()
+
+    with open(arguments.peptide_sequence, 'r') as peptide:
         peptide_seq = peptide.readlines()
         if peptide_seq[0][0] == '>':
             peptide_seq = peptide_seq[1].strip()
@@ -764,16 +790,11 @@ if __name__ == "__main__":
             peptide_seq = peptide_seq[0].strip()
 
     pep_length = len(peptide_seq)
-    receptor_path = os.path.abspath(sys.argv[1])
+    receptor_path = os.path.abspath(arguments.receptor)
 
-    talaris = False
-    prepack = True
-    native = ''
-    if len(sys.argv) > 3:
-        if '-restore_talaris_behavior' in sys.argv:
-            talaris = True
-        if '-native' in sys.argv:
-            native = os.path.abspath(sys.argv[sys.argv.index('-native') + 1])
+    talaris = arguments.talaris
+    minimization = arguments.minimize_receptor
+    native = arguments.native_structure
 
     # Define all the directories that will be created:
     root = os.getcwd()
@@ -787,5 +808,7 @@ if __name__ == "__main__":
     refinement_dir = os.path.join(root, 'refinement')
     clustering_dir = os.path.join(refinement_dir, 'clustering')
     bad_frags_dir = 'bad_fragments'
+
+    final_dir = 'FINAL_RESULTS'  # Here copy top 10 models and score file
 
     run_protocol(peptide_seq, receptor_path)
