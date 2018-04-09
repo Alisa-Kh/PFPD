@@ -809,6 +809,6 @@ if __name__ == "__main__":
     clustering_dir = os.path.join(refinement_dir, 'clustering')
     bad_frags_dir = 'bad_fragments'
 
-    final_dir = 'FINAL_RESULTS'  # Here copy top 10 models and score file
+    final_dir = 'FINAL_RESULTS'  # top 10 models and score file
 
     run_protocol(peptide_seq, receptor_path)
