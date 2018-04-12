@@ -105,8 +105,13 @@ def collect_results():
             struct = 'c.{cluster}.{member}.pdb'.format(cluster=cur_line[1], member=cur_line[2])
             os.system(protocol.COPY.format(os.path.join(CLUSTERING_DIR, struct), FINAL_DIR))
 
-clustering_pool = create_pdb_list()
-actual_radius = define_actual_r()
-run_clustering(actual_radius)
-results_processing(clustering_pool)
-collect_results()
+if __name__ == "__main__":
+    os.rename('../score.sc', '../score_before_rescoring.sc')
+    os.rename('../decoys.slilent', '../old_decoys.silent')
+    os.rename('../rescore.sc', '../score.sc')
+    os.rename('../decoys.rescored.silent', '../decoys.silent')
+    clustering_pool = create_pdb_list()
+    actual_radius = define_actual_r()
+    run_clustering(actual_radius)
+    results_processing(clustering_pool)
+    collect_results()
