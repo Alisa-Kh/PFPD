@@ -9,8 +9,8 @@ radius = sys.argv[1]
 native = sys.argv[2]
 silent_input = sys.argv[3]
 
-HEADER = 'DecoyID\t\tClusterN\tMemberID I_sc\tReweighted_sc'
-FINAL_DIR = 'FINAL_RESULTS'
+HEADER = 'DecoyID\t\tClusterN MemberID\tI_sc\tReweighted_sc'
+FINAL_DIR = '../../FINAL_RESULTS'
 CLUSTERING_DIR = os.getcwd()
 
 
@@ -64,7 +64,8 @@ def results_processing(clustering_pool_num):
         whole_log = log.readlines()
     with open('cluster_list', 'w') as cluster_lst:
         decoys_lst = []
-        relevant_lines = whole_log[-5 - clustering_pool_num:-5]
+        final_lines_inx = whole_log.index('Timing: \n')
+        relevant_lines = whole_log[final_lines_inx - clustering_pool_num + 1:final_lines_inx]
         for line in relevant_lines:
             cluster_lst.write(line.split()[2] + '\t' + line.split()[3] + '\t' + line.split()[4] + '\n')
             decoys_lst.append(line.split()[2] + '\t' + line.split()[3] + '\t' + line.split()[4])

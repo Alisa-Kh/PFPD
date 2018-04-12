@@ -243,9 +243,9 @@ def refine_flags_file():
                     '-mute core.fragment\n'
                     '-mute protocols.jd2.PDBJobInputter'.format(receptor=receptor_path))
         if minimization:
-            flags.write('-min_receptor_bb\n')
+            flags.write('\n-min_receptor_bb')
         if native:
-            flags.write('-native {native}'.format(native=native))
+            flags.write('\n-native {native}'.format(native=native))
 
 ################################################
 """ATTENTION! Do not change the code below!!!"""
@@ -794,7 +794,7 @@ if __name__ == "__main__":
 
     talaris = arguments.talaris
     minimization = arguments.minimize_receptor
-    native = arguments.native_structure
+    native = os.path.abspath(arguments.native_structure)
 
     # Define all the directories that will be created:
     root = os.getcwd()
