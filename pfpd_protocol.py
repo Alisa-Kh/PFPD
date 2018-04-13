@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import argparse
 import sys
@@ -40,6 +40,10 @@ FIXBB_JD3 = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiserializati
 FIXBB_JD3_TALARIS = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiserialization.linuxgccrelease') + \
                     ' -database ' + ROSETTA_DB + ' -restore_talaris_behavior ' \
                      '-in:file:job_definition_file {} > fixbb.log'
+FIXBB = os.path.join(ROSETTA_BIN, 'fixbb.linuxgccrelease') + ' -database ' + ROSETTA_DB + \
+        ' -in:file:s {frag} -resfile {resfile} -ex1 -ex2 -use_input_sc -scorefile design_score.sc >design.log'
+FIXBB_TALARIS = os.path.join(ROSETTA_2016_BIN, 'fixbb.linuxgccrelease') + ' -database ' + ROSETTA_2016_DB + \
+                ' -in:file:s {frag} -resfile {resfile} -ex1 -ex2 -use_input_sc -scorefile design_score.sc >design.log'
 
 BUILD_PEPTIDE = os.path.join(ROSETTA_BIN, 'BuildPeptide.linuxgccrelease') + ' -in:file:fasta {}' \
                 ' -database ' + ROSETTA_DB + ' -out:file:o peptide.pdb > build_peptide.log'
@@ -52,8 +56,8 @@ FRAG_PICKER = os.path.join(ROSETTA_BIN, 'fragment_picker.linuxgccrelease') + \
 
 PREPACK = os.path.join(ROSETTA_BIN, 'FlexPepDocking.default.linuxgccrelease') + \
           ' -database ' + ROSETTA_DB + ' @prepack_flags >ppk.log'
-PREPACK_TALARIS = os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
-                  ' -database ' + ROSETTA_DB + ' @prepack_flags >ppk.log'
+PREPACK_TALARIS = 'mpirun -n 5 ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
+                  ' -database ' + ROSETTA_2016_DB + ' @prepack_flags >ppk.log'
 
 FPD = 'ls *gz >input_list\n' \
       'mpirun ' + os.path.join(ROSETTA_BIN, 'FlexPepDocking.mpiserialization.linuxgccrelease') + \
@@ -229,7 +233,7 @@ def prepack_flags_file(receptor):
                     '-mute core.pack.rotamer_trials\n'
                     '-mute protocols.abinitio.FragmentMover\n'
                     '-mute core.fragment\n'
-                    '-mute protocols.jd2.PDBJobInputter\n')
+                    '-mute protocols.jd2.PDBJobInputter')
 
 
 def refine_flags_file():
@@ -555,14 +559,27 @@ def extract_more_frags(n_frags, defective_from_fixbb):
     return process_frags(peptide_seq, add_frags, n_frags)
 
 
-def run_fixbb():
-    """Run jd3_fixbb design (with option to restore talaris behaviour)"""
+def run_fixbb(pdb_and_resfiles):
+    """Run fixbb design (option to restore talaris behaviour)"""
+    if not os.path.exists(fixbb_dir):
+        os.makedirs(fixbb_dir)
     os.chdir(fixbb_dir)
-    print("**************Fixbb design**************")
+    print("**************Fixbb design...**************")
     if talaris:
-        os.system(FIXBB_JD3_TALARIS.format('design.xml'))
+        if jd3:
+            os.system(FIXBB_JD3_TALARIS.format('design.xml'))
+        else:
+            for pdb, resfile in pdb_and_resfiles.items():
+                os.system(FIXBB_TALARIS.format(frag=os.path.join(fragments_dir, pdb),
+                                               resfile=os.path.join(resfiles_dir, resfile)))
     else:
-        os.system(FIXBB_JD3.format('design.xml'))
+        if jd3:
+            os.system(FIXBB_JD3.format('design.xml'))
+        else:
+            for pdb, resfile in pdb_and_resfiles.items():
+                os.system(FIXBB.format(frag=os.path.join(fragments_dir, pdb),
+                                       resfile=os.path.join(resfiles_dir, resfile)))
+
     print("Done!")
     # If we need to extract additional fragments for more then once, we need to add bad fragments
     # to frags_file shift also (but only starting from second time)
@@ -580,7 +597,7 @@ def run_fixbb():
         # extract more frags and create a new dictionary for creating an xml
         new_frag_resfile_dict = extract_more_frags(fragments_needed, already_defective)
         create_xml(new_frag_resfile_dict)
-        run_fixbb()
+        run_fixbb(pdb_and_resfiles)
 
 
 def rename_chain(structure, chain_id):
@@ -802,27 +819,28 @@ def run_piper_fpd(processed_receptor):
 
 def run_protocol(peptide_sequence, receptor):
     
-    if native:
-        check_native_structure()
+    # if native:
+    #     check_native_structure()
+    #
+    # make_pick_fragments(peptide_sequence)
 
-    make_pick_fragments(peptide_sequence)
+    # all_frags = create_params_file(FRAGS_FILE.format(str(pep_length)))
+    #
+    # # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
+    # pdb_and_resfiles = process_frags(peptide_seq, all_frags)
+    #
+    # if jd3:
+    #     create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
+    #
+    # # run fixbb
+    # run_fixbb(pdb_and_resfiles)
+    #
+    # # process ligands and receptor for piper run
+    # process_for_piper(receptor)  # only basename
 
-    all_frags = create_params_file(FRAGS_FILE.format(str(pep_length)))
-
-    # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
-    pdb_and_resfiles = process_frags(peptide_seq, all_frags)
-
-    create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
-
-    # run fixbb
-    run_fixbb()
-
-    # process ligands and receptor for piper run
-    process_for_piper(receptor)  # only basename
-
-    build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
-
-    prepack_receptor(os.path.basename(receptor).lower())
+    # build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
+    #
+    # prepack_receptor(os.path.basename(receptor).lower())
 
     # run piper docking, extract top 250 models from each run, run FlexPepDock, clustering,
     # rescoring and get top 10 models
@@ -845,6 +863,7 @@ if __name__ == "__main__":
     parser.add_argument('--restore_talaris_behavior', dest='talaris', action='store_true', default=False)
     parser.add_argument('--receptor_min', dest='minimize_receptor', action='store_true', default=False)
     parser.add_argument('--native', dest='native_structure', default=None)
+    parser.add_argument('--jd3', dest='job_distributor', action='store_true', default=False)
 
     arguments = parser.parse_args()
 
@@ -861,6 +880,8 @@ if __name__ == "__main__":
     talaris = arguments.talaris
     minimization = arguments.minimize_receptor
     native = arguments.native_structure
+    jd3 = arguments.job_distributor
+
     if native:
         native_path = os.path.abspath(native)
 
