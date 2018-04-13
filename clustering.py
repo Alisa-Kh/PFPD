@@ -107,9 +107,9 @@ def collect_results():
 
 if __name__ == "__main__":
     os.rename('../score.sc', '../score_before_rescoring.sc')
-    os.rename('../decoys.slilent', '../old_decoys.silent')
+    os.rename('../decoys.silent', '../old_decoys.silent')
     os.rename('../rescore.sc', '../score.sc')
-    os.rename('../decoys.rescored.silent', '../decoys.silent')
+    os.rename('../decoys_rescored.silent', '../decoys.silent')
     clustering_pool = create_pdb_list()
     actual_radius = define_actual_r()
     run_clustering(actual_radius)

@@ -148,7 +148,7 @@ SBATCH_PREP_FPD_INPUT = "#!/bin/sh\n" \
                         "#SBATCH --get-user-env\n" \
                         + PREPARE_FPD_IN
 SBATCH_FPD = '#!/bin/bash\n' \
-             '#SBATCH --ntasks={}\n' \
+             '#SBATCH --ntasks=300\n' \
              '#SBATCH --time=50:00:00\n' \
              '#SBATCH --get-user-env\n' \
              '{fpd_version}'
@@ -256,7 +256,7 @@ def refine_flags_file():
                     '-mute protocols.jd2.PDBJobInputter'.format(receptor=receptor_path))
         if minimization:
             flags.write('\n-min_receptor_bb')
-        if native_path:
+        if native:
             flags.write('\n-native {native}'.format(native=native_path))
 
 ################################################
@@ -267,11 +267,11 @@ def refine_flags_file():
 def check_native_structure():
     rec_name = os.path.splitext(os.path.basename(receptor_path))[0]
     os.system(CLEAN_PDB.format(rec_name, 'ignorechain'))
-    fasta = FASTA.format(rec_name.upper(), 'ignorechain')
+    fasta = FASTA.format(rec_name, 'ignorechain')
     with open(fasta, 'r') as f:
         receptor_seq = f.read()
     os.remove(fasta)
-    os.remove(os.path.splitext(fasta)[0] + 'pdb')
+    os.remove(os.path.splitext(fasta)[0] + '.pdb')
     receptor_seq = receptor_seq[receptor_seq.find('\n') + 1:].strip()
     receptor_len = len(receptor_seq)
     complex_seq = receptor_seq + peptide_seq
@@ -458,7 +458,6 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
 
             is_frag_ok = review_frag(outfile, sequence)
             if is_frag_ok:
-                print("success!")
                 os.remove(pdb_full)
                 os.remove(fasta_name)
                 frags_count = count_pdbs(fragments_dir)
@@ -718,6 +717,7 @@ def create_batch(receptor, run, i=0):
             if talaris:
                 refinement.write(SBATCH_FPD.format(fpd_version=FPD_TALARIS.format(flags='refine_flags')))
             else:
+                # fpd = FPD.format(flags='refine_flags')
                 refinement.write(SBATCH_FPD.format(fpd_version=FPD.format(flags='refine_flags')))
     elif run == 'clustering':
         with open(os.path.join(clustering_dir, 'run_clustering'), 'w') as cluster:
@@ -778,7 +778,6 @@ def run_piper_fpd(processed_receptor):
     if not os.path.exists(clustering_dir):
         os.makedirs(clustering_dir)
     create_batch(receptor_path, 'clustering')
-
     if not native:  # If native structure was not provided, top scoring strucrture will be taken as native for rescoring
         with open(os.path.join(refinement_dir, 'extract_model'), 'w') as extract_pdb:
             extract_pdb.write(SBATCH_EXTRACT_TOP_MODEL)
@@ -802,8 +801,9 @@ def run_piper_fpd(processed_receptor):
 
 
 def run_protocol(peptide_sequence, receptor):
-
-    check_native_structure()
+    
+    if native:
+        check_native_structure()
 
     make_pick_fragments(peptide_sequence)
 
