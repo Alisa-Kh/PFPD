@@ -14,8 +14,7 @@ def rescoring_flags(lowest_sc_struct):
                       '-out:file:silent decoys_rescored.silent\n'
                       '-flexPepDocking:flexpep_score_only\n'
                       '-native {}\n'
-                      '-mute all\n-unmute protocols.flexPepDocking\n'
-                      '-out::level 0'.format(lowest_sc_struct))
+                      '-mute all\n-unmute protocols.flexPepDocking'.format(lowest_sc_struct))
 
 
 def rescoring():

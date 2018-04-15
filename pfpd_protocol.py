@@ -76,11 +76,11 @@ PDBPREP = 'perl ' + PIPER_BIN + 'phplibbin/pdbprep.pl {}'
 PDBNMD = 'perl ' + PIPER_BIN + 'phplibbin/pdbnmd.pl "{}"' + ' ?'
 
 PIPER_DOCKING = PIPER_BIN + 'piper.acpharis.omp.20120803 -vv -c1.0 -k4 --msur_k=1.0' \
-                ' --maskr=1.0 -T FFTW_EXHAUSTIVE -R 70000 -t 1 -p ' + PIPER_DIR +\
+                ' --maskr=1.0 -T FFTW_EXHAUSTIVE -R {decoys} -t 1 -p ' + PIPER_DIR +\
                 'prms/atoms.0.0.4.prm.ms.3cap+0.5ace.Hr0rec -f ' + PIPER_DIR + \
                 'prms/coeffs.0.0.4.motif -r ' + PIPER_DIR + 'prms/rot70k.0.0.4.prm ' \
                 '{r} {l} >piper.log'
-EXTRACT_PIPER_MODELS = "for f in `awk '{print $1}' ft.000.00 | head -250`;" \
+EXTRACT_PIPER_MODELS = "for f in `awk '{print $1}' ft.000.00 | head -%s`;" \
                        "do if [ ! -f {f}.pdb ]; then " + PIPER_DIR + "apply_ftresult.py " \
                        "-i $f ft.000.00 " + PIPER_DIR + "prms/rot70k.0.0.4.prm %s " \
                        "--out-prefix $f;fi;done"
@@ -95,6 +95,10 @@ PREPARE_FPD_IN = "piper_run=`pwd | awk -F'/' '{print $NF}'`\nfor f in `ls [0-9]*
                  "do cat %s ${f} | grep ATOM >%s/${piper_run}.${f};gzip %s/${piper_run}.${f};done"
 
 # Other constants
+
+NUM_OF_FRAGS = 50  # should be 50
+PIPER_MODELS_EXTRACTED = str(250)  # should be 250
+PIPER_MODELS_GENERATED = str(70000)  # should be 70000
 
 FRAGS_FILE = 'frags.100.{}mers'
 THREE_TO_ONE_AA = {'G': 'GLY',
@@ -118,18 +122,10 @@ THREE_TO_ONE_AA = {'G': 'GLY',
                    'D': 'ASP',
                    'E': 'GLU'}
 
-NUM_OF_FRAGS = 50
-
 PDB = '{}_{}.pdb'
 FASTA = '{}_{}.fasta'
 BAD_NATIVE = "The native structure and the receptor should have the same sequence and the same length.\n" \
              "Please provide a valid native structure"
-USAGE = 'Usage:\n [receptor.pdb] [peptide_sequence]\n' \
-        'optional: -native [native_structure] -restore_talaris_behavior -receptor_min\n' \
-        '\nYou need to provide a pdb file for receptor and a text file with peptide sequence ' \
-        '(or FASTA file)\n' \
-        'If you want to run it with talaris2014, add "-restore_talaris_behavior" option and make ' \
-        'sure you have both - 2016 and current versions of Rosetta'
 
 #####################################################################################
 """WE are using SLURM workload manager. If you are not - change the commands below"""
@@ -140,6 +136,7 @@ SBATCH_PIPER = '#!/bin/sh\n' \
                '#SBATCH --time=20:00:00\n' \
                '#SBATCH --get-user-env\n'\
                + PIPER_DOCKING
+
 SBATCH_EXTRACT_TOP_DECOYS = "#!/bin/sh\n" \
                             "#SBATCH --nodes 1\n" \
                             "#SBATCH --ntasks=1\n" \
@@ -629,7 +626,7 @@ def process_for_piper(receptor):
             rename_chain(os.path.join(fixbb_dir, frag), 'B')
             frags_list.append(os.path.basename(frag))
     with open(os.path.join(piper_dir, 'runs_list'), 'w') as runs_list:  # Create list 1 - 50
-        for i in range(1, 51):
+        for i in range(1, NUM_OF_FRAGS + 1):
             runs_list.write("{:02}\n".format(i))
 
     # Create symlinks for piper run
@@ -721,10 +718,10 @@ def create_batch(receptor, run, i=0):
     lig_name = 'lig.' + "{:04}".format(i) + '_nmin.pdb'
     if run == 'piper':
         with open('run_piper', 'w') as piper:
-            piper.write(SBATCH_PIPER.format(r=rec_name, l=lig_name))
+            piper.write(SBATCH_PIPER.format(decoys=PIPER_MODELS_GENERATED, r=rec_name, l=lig_name))
     elif run == 'decoys':
         with open('run_extract_decoys', 'w') as extract_decoys:
-            extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % lig_name)
+            extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % (PIPER_MODELS_EXTRACTED, lig_name))
     elif run == 'prepare_inputs':
         ppk_receptor = os.path.join(prepack_dir, receptor)
         with open('run_prepare_fpd_inputs', 'w') as inputs:
@@ -748,15 +745,14 @@ def create_batch(receptor, run, i=0):
                                                        sc_func='talaris14'))
 
 
-def run_piper_fpd(processed_receptor):
-    """Run PIPER, FPD and clustering"""
+def send_piper_jobs(processed_receptor):
     print("**************Sending PIPER, FlexPepDock and clustering jobs**************")
     receptor_name = os.path.splitext(os.path.basename(receptor_path))[0]
     jobs_list = []
     # PIPER step
     os.chdir(piper_dir)
     ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
-    for i in range(1, 51):
+    for i in range(1, NUM_OF_FRAGS + 1):
         run_dir = "{:02}".format(i)
         if not os.path.exists(run_dir):
             os.makedirs(run_dir)
@@ -767,17 +763,23 @@ def run_piper_fpd(processed_receptor):
         create_batch(receptor_name, 'decoys', i)
         create_batch(ppk_receptor, 'prepare_inputs', i)
 
-        # run PIPER docking, extract 250 top decoys, run refinement and clustering
-        run_piper = subprocess.check_output(RUN_PIPER)
-        piper_id = run_piper.split()[-1]
-        RUN_EXTRACT_DECOYS[1] = '--dependency=afterany:%s' % piper_id
-        run_extract_decoys = subprocess.check_output(RUN_EXTRACT_DECOYS)
-        extract_decoys_id = run_extract_decoys.split()[-1]
-        RUN_PREP_FPD_INPUTS[1] = '--dependency=afterany:%s' % extract_decoys_id
-        run_prepare_fpd_inputs = subprocess.check_output(RUN_PREP_FPD_INPUTS)
-        jobs_list.append(run_prepare_fpd_inputs.split()[-1])
+        # run PIPER docking, extract top 250 decoys and prepare input for refinement
+        run_piper = str(subprocess.check_output(RUN_PIPER))
+        piper_id = ''.join(d for d in run_piper if d.isdigit())
+        RUN_EXTRACT_DECOYS[1] = '--dependency=aftercorr:%s' % piper_id
+        run_extract_decoys = str(subprocess.check_output(RUN_EXTRACT_DECOYS))
+        extract_decoys_id = ''.join(d for d in run_extract_decoys if d.isdigit())
+        RUN_PREP_FPD_INPUTS[1] = '--dependency=aftercorr:%s' % extract_decoys_id
+        run_prepare_fpd_inputs = str(subprocess.check_output(RUN_PREP_FPD_INPUTS))
+        jobs_list.append(''.join(d for d in run_prepare_fpd_inputs if d.isdigit()))
         os.chdir(piper_dir)
 
+    return jobs_list, receptor_name
+
+
+def run_piper_fpd(processed_receptor):
+    """Run PIPER, FPD and clustering"""
+    jobs_list, receptor_name = send_piper_jobs(processed_receptor)
     # FPD refinement
     if not os.path.exists(refinement_dir):
         os.makedirs(refinement_dir)
@@ -787,15 +789,16 @@ def run_piper_fpd(processed_receptor):
     all_prep_jobs = ''
     for job_id in jobs_list:
         all_prep_jobs += ':' + job_id  # there are multiple jobs and a semicolon needs to be written before each of them
-    RUN_REFINEMENT[1] = '--dependency=afterany%s' % all_prep_jobs
-    run_refinement = subprocess.check_output(RUN_REFINEMENT)
-    refinement_id = run_refinement.split()[-1]
+    RUN_REFINEMENT[1] = '--dependency=aftercorr%s' % all_prep_jobs
+    run_refinement = str(subprocess.check_output(RUN_REFINEMENT))
+
+    refinement_id = ''.join(d for d in run_refinement if d.isdigit())
 
     # Rescoring and Clustering
     if not os.path.exists(clustering_dir):
         os.makedirs(clustering_dir)
     create_batch(receptor_path, 'clustering')
-    if not native:  # If native structure was not provided, top scoring strucrture will be taken as native for rescoring
+    if not native:  # If native structure was not provided, top scoring structure will be taken as native for rescoring
         with open(os.path.join(refinement_dir, 'extract_model'), 'w') as extract_pdb:
             extract_pdb.write(SBATCH_EXTRACT_TOP_MODEL)
         with open(os.path.join(refinement_dir, 'rescoring'), 'w') as rescore:
@@ -803,47 +806,52 @@ def run_piper_fpd(processed_receptor):
                 rescore.write(SBATCH_RESCORING.format(sc_func='talaris14'))
             else:
                 rescore.write(SBATCH_RESCORING.format(sc_func='ref2015'))
-        RUN_EXTRACT_TOP_MODEL[1] = '--dependency=afterany:%s' % refinement_id
-        extract_model = subprocess.check_output(RUN_EXTRACT_TOP_MODEL)
-        extract_model_id = extract_model.split()[-1]
-        RUN_RESCORING[1] = '--dependency=afterany:%s' % extract_model_id
-        rescoring = subprocess.check_output(RUN_RESCORING)
-        rescoring_id = rescoring.split()[-1]
+        RUN_EXTRACT_TOP_MODEL[1] = '--dependency=aftercorr:%s' % refinement_id
+        extract_model = str(subprocess.check_output(RUN_EXTRACT_TOP_MODEL))
+
+        extract_model_id = ''.join(d for d in extract_model if d.isdigit())
+        RUN_RESCORING[1] = '--dependency=aftercorr:%s' % extract_model_id
+        rescoring = str(subprocess.check_output(RUN_RESCORING))
+
+        rescoring_id = ''.join(d for d in rescoring if d.isdigit())
         os.chdir(clustering_dir)
-        RUN_CLUSTERING[1] = '--dependency=afterany:%s' % rescoring_id
-    os.chdir(clustering_dir)
-    RUN_CLUSTERING[1] = '--dependency=afterany:%s' % refinement_id
-    subprocess.call(RUN_CLUSTERING)
+        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % rescoring_id
+        subprocess.call(RUN_CLUSTERING)
+    else:
+        os.chdir(clustering_dir)
+        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % refinement_id
+        subprocess.call(RUN_CLUSTERING)
     os.chdir(root)
 
 
 def run_protocol(peptide_sequence, receptor):
     
-    # if native:
-    #     check_native_structure()
-    #
-    # make_pick_fragments(peptide_sequence)
+    if native:
+        check_native_structure()
 
-    # all_frags = create_params_file(FRAGS_FILE.format(str(pep_length)))
-    #
-    # # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
-    # pdb_and_resfiles = process_frags(peptide_seq, all_frags)
-    #
-    # if jd3:
-    #     create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
-    #
-    # # run fixbb
-    # run_fixbb(pdb_and_resfiles)
-    #
-    # # process ligands and receptor for piper run
-    # process_for_piper(receptor)  # only basename
+    make_pick_fragments(peptide_sequence)
 
-    # build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
-    #
-    # prepack_receptor(os.path.basename(receptor).lower())
+    all_frags = create_params_file(FRAGS_FILE.format(str(pep_length)))
+
+    # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
+    pdb_and_resfiles = process_frags(peptide_seq, all_frags)
+
+    if jd3:
+        create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
+
+    # run fixbb
+    run_fixbb(pdb_and_resfiles)
+
+    # process ligands and receptor for piper run
+    process_for_piper(receptor)  # only basename
+
+    build_peptide(os.path.abspath(sys.argv[2]))  # build extended peptide and rename it's chain id to 'B'
+
+    prepack_receptor(os.path.basename(receptor).lower())
 
     # run piper docking, extract top 250 models from each run, run FlexPepDock, clustering,
     # rescoring and get top 10 models
+
     run_piper_fpd(os.path.basename(receptor).lower())
 
 

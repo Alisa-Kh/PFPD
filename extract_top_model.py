@@ -10,8 +10,7 @@ EXTRACT_MODEL = os.path.join(protocol.ROSETTA_BIN, 'extract_pdbs.linuxgccrelease
 def extracting_flags(lowest_sc_struct):
     with open('extract_flags', 'w') as extract:
         extract.write('-in:file:silent decoys.silent\n'
-                      '-in:file:tags {}\n'
-                      '-out::level 0'.format(lowest_sc_struct))
+                      '-in:file:tags {}\n'.format(lowest_sc_struct))
 
 
 def extract_pdb():
