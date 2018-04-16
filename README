@@ -12,3 +12,4 @@ For blind docking (no known complex structure) additional rescoring step is need
 Although, if native structure is available pass it as an argument to the script with "--native" flag
 
 For minimization add "--receptor_min" flag
+For running the protocol with jd3 pass "--jd3" flag
