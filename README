@@ -1,15 +1,15 @@
-This script runs full PIPER-FlexPepDock protocol. The script uses new Rosetta version, which
+This script runs PIPER-FlexPepDock protocol. The script uses new Rosetta version, which
 is relying on ref2015 score function. To restore the protocol published in
 http://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1005905#sec030
-add '--restore_talaris_behaviour' option and make sure you have new Rosetta version as well as Rosetta 2016.20 release
-
-For running jd3_fixbb_design you will need to build your updated Rosetta in MPI and serialization:
-scons bin mode=release extras=mpi,serialization
+add '--restore_talaris_behaviour' option and make sure you have Rosetta 2016.20 release compiled
 
 An old version of make_fragments.pl script, which works with this protocol, is also provided.
 
-For blind docking (no known complex structure) additional rescoring step is needed.
-Although, if native structure is available pass it as an argument to the script with "--native" flag
+If native structure is available pass it as an argument to the script with "--native" flag
 
 For minimization add "--receptor_min" flag
+
 For running the protocol with jd3 pass "--jd3" flag
+
+*For running jd3_fixbb design you will need to build your updated Rosetta in MPI and serialization:
+scons bin mode=release extras=mpi,serialization
