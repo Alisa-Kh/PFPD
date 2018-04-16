@@ -121,15 +121,16 @@ THREE_TO_ONE_AA = {'G': 'GLY',
                    'R': 'ARG',
                    'D': 'ASP',
                    'E': 'GLU'}
+PSIPRED_OUTPUT = ['C', 'E', 'H']
 
 PDB = '{}_{}.pdb'
 FASTA = '{}_{}.fasta'
 BAD_NATIVE = "The native structure and the receptor should have the same sequence and the same length.\n" \
              "Please provide a valid native structure"
 
-#####################################################################################
-"""WE are using SLURM workload manager. If you are not - change the commands below"""
-#####################################################################################
+######################################################################################################
+"""WE are using SLURM workload manager. If you are using something else - change the commands below"""
+######################################################################################################
 
 SBATCH_PIPER = '#!/bin/sh\n' \
                '#SBATCH --ntasks=1\n' \
@@ -169,7 +170,7 @@ SBATCH_CLUSTERING = '#!/bin/bash\n' \
                     '#SBATCH --get-user-env\n' \
                     + CLUSTERING
 
-# 'dependency' in these commands will be changed to specific 'dependency=afterany$job_num' before run
+# 'dependency' in these commands will be changed to specific 'dependency=aftercorr$job_num' before run
 
 RUN_PIPER = ['sbatch', '--mem=1500m', 'run_piper']
 RUN_EXTRACT_DECOYS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_extract_decoys']
@@ -179,7 +180,89 @@ RUN_EXTRACT_TOP_MODEL = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'extract
 RUN_RESCORING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'rescoring']
 RUN_CLUSTERING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_clustering']
 
-####################################################################################
+#############################################################################################
+"""Attention! Next 2 functions send all the jobs to cluster. They are also SLURM dependent"""
+#############################################################################################
+
+
+def send_piper_jobs(processed_receptor):
+    print("**************Sending PIPER, FlexPepDock and clustering jobs**************")
+    receptor_name = os.path.splitext(os.path.basename(receptor_path))[0]
+    jobs_list = []
+    # PIPER step
+    os.chdir(piper_dir)
+    ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
+    for i in range(1, NUM_OF_FRAGS + 1):
+        run_dir = "{:02}".format(i)
+        if not os.path.exists(run_dir):
+            os.makedirs(run_dir)
+        os.chdir(run_dir)
+        os.system(COPY.format(os.path.join(piper_dir, 'ligands', 'lig.' + "{:04}".format(i) + '_nmin.pdb'),
+                              'lig.' + "{:04}".format(i) + '_nmin.pdb'))
+        create_batch(receptor_name, 'piper', i)
+        create_batch(receptor_name, 'decoys', i)
+        create_batch(ppk_receptor, 'prepare_inputs', i)
+
+        # run PIPER docking, extract top 250 decoys and prepare input for refinement
+        run_piper = str(subprocess.check_output(RUN_PIPER))
+        piper_id = ''.join(d for d in run_piper if d.isdigit())
+        RUN_EXTRACT_DECOYS[1] = '--dependency=aftercorr:%s' % piper_id
+        run_extract_decoys = str(subprocess.check_output(RUN_EXTRACT_DECOYS))
+        extract_decoys_id = ''.join(d for d in run_extract_decoys if d.isdigit())
+        RUN_PREP_FPD_INPUTS[1] = '--dependency=aftercorr:%s' % extract_decoys_id
+        run_prepare_fpd_inputs = str(subprocess.check_output(RUN_PREP_FPD_INPUTS))
+        jobs_list.append(''.join(d for d in run_prepare_fpd_inputs if d.isdigit()))
+        os.chdir(piper_dir)
+
+    return jobs_list, receptor_name
+
+
+def run_piper_fpd_jobs(processed_receptor):
+    """Run PIPER, FPD and clustering"""
+    jobs_list, receptor_name = send_piper_jobs(processed_receptor)
+    # FPD refinement
+    if not os.path.exists(refinement_dir):
+        os.makedirs(refinement_dir)
+    os.chdir(refinement_dir)
+    create_batch(receptor_name, 'refinement')
+    refine_flags_file()
+    all_prep_jobs = ''
+    for job_id in jobs_list:
+        all_prep_jobs += ':' + job_id  # there are multiple jobs and a semicolon needs to be written before each of them
+    RUN_REFINEMENT[1] = '--dependency=aftercorr%s' % all_prep_jobs
+    run_refinement = str(subprocess.check_output(RUN_REFINEMENT))
+
+    refinement_id = ''.join(d for d in run_refinement if d.isdigit())
+
+    # Rescoring and Clustering
+    if not os.path.exists(clustering_dir):
+        os.makedirs(clustering_dir)
+    create_batch(receptor_path, 'clustering')
+    if not native:  # If native structure was not provided, top scoring structure will be taken as native for rescoring
+        with open(os.path.join(refinement_dir, 'extract_model'), 'w') as extract_pdb:
+            extract_pdb.write(SBATCH_EXTRACT_TOP_MODEL)
+        with open(os.path.join(refinement_dir, 'rescoring'), 'w') as rescore:
+            if talaris:
+                rescore.write(SBATCH_RESCORING.format(sc_func='talaris14'))
+            else:
+                rescore.write(SBATCH_RESCORING.format(sc_func='ref2015'))
+        RUN_EXTRACT_TOP_MODEL[1] = '--dependency=aftercorr:%s' % refinement_id
+        extract_model = str(subprocess.check_output(RUN_EXTRACT_TOP_MODEL))
+
+        extract_model_id = ''.join(d for d in extract_model if d.isdigit())
+        RUN_RESCORING[1] = '--dependency=aftercorr:%s' % extract_model_id
+        rescoring = str(subprocess.check_output(RUN_RESCORING))
+
+        rescoring_id = ''.join(d for d in rescoring if d.isdigit())
+        os.chdir(clustering_dir)
+        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % rescoring_id
+        subprocess.call(RUN_CLUSTERING)
+    else:
+        os.chdir(clustering_dir)
+        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % refinement_id
+        subprocess.call(RUN_CLUSTERING)
+    os.chdir(root)
+
 
 ######################################################################
 """It is not recommended to change the flags, unless you know what you 
@@ -305,6 +388,27 @@ def make_pick_fragments(pep_seq):
     os.chdir(frag_picker_dir)
     print("**************Picking fragments**************")
     os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+    if sec_struct:
+        os.rename('psipred_ss2', 'psipred_ss2_orig')
+        with open('psipred_ss2', 'w') as psi_new:
+            with open('psipred_ss2_orig', 'r') as psipred:
+                psipred_lines = psipred.readlines()
+                for i, line in enumerate(psipred_lines):
+                    new_line = line.split()
+                    new_line[2] = ss_pred[i]
+                    if ss_pred[i] == 'C':
+                        new_line[3] = '0.700'
+                        new_line[4] = '0.290'
+                        new_line[5] = '0.010'
+                    elif ss_pred[i] == 'H':
+                        new_line[3] = '0.290'
+                        new_line[4] = '0.700'
+                        new_line[5] = '0.010'
+                    elif ss_pred[i] == 'E':
+                        new_line[3] = '0.290'
+                        new_line[4] = '0.010'
+                        new_line[5] = '0.700'
+                    psi_new.write('\t'.join(new_line) + '\n')
     fragments_flags_and_cfg()  # Write flags files
     os.system(FRAG_PICKER)  # Run fragment picker
     os.system(COPY.format(FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
@@ -745,85 +849,6 @@ def create_batch(receptor, run, i=0):
                                                        sc_func='talaris14'))
 
 
-def send_piper_jobs(processed_receptor):
-    print("**************Sending PIPER, FlexPepDock and clustering jobs**************")
-    receptor_name = os.path.splitext(os.path.basename(receptor_path))[0]
-    jobs_list = []
-    # PIPER step
-    os.chdir(piper_dir)
-    ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
-    for i in range(1, NUM_OF_FRAGS + 1):
-        run_dir = "{:02}".format(i)
-        if not os.path.exists(run_dir):
-            os.makedirs(run_dir)
-        os.chdir(run_dir)
-        os.system(COPY.format(os.path.join(piper_dir, 'ligands', 'lig.' + "{:04}".format(i) + '_nmin.pdb'),
-                              'lig.' + "{:04}".format(i) + '_nmin.pdb'))
-        create_batch(receptor_name, 'piper', i)
-        create_batch(receptor_name, 'decoys', i)
-        create_batch(ppk_receptor, 'prepare_inputs', i)
-
-        # run PIPER docking, extract top 250 decoys and prepare input for refinement
-        run_piper = str(subprocess.check_output(RUN_PIPER))
-        piper_id = ''.join(d for d in run_piper if d.isdigit())
-        RUN_EXTRACT_DECOYS[1] = '--dependency=aftercorr:%s' % piper_id
-        run_extract_decoys = str(subprocess.check_output(RUN_EXTRACT_DECOYS))
-        extract_decoys_id = ''.join(d for d in run_extract_decoys if d.isdigit())
-        RUN_PREP_FPD_INPUTS[1] = '--dependency=aftercorr:%s' % extract_decoys_id
-        run_prepare_fpd_inputs = str(subprocess.check_output(RUN_PREP_FPD_INPUTS))
-        jobs_list.append(''.join(d for d in run_prepare_fpd_inputs if d.isdigit()))
-        os.chdir(piper_dir)
-
-    return jobs_list, receptor_name
-
-
-def run_piper_fpd(processed_receptor):
-    """Run PIPER, FPD and clustering"""
-    jobs_list, receptor_name = send_piper_jobs(processed_receptor)
-    # FPD refinement
-    if not os.path.exists(refinement_dir):
-        os.makedirs(refinement_dir)
-    os.chdir(refinement_dir)
-    create_batch(receptor_name, 'refinement')
-    refine_flags_file()
-    all_prep_jobs = ''
-    for job_id in jobs_list:
-        all_prep_jobs += ':' + job_id  # there are multiple jobs and a semicolon needs to be written before each of them
-    RUN_REFINEMENT[1] = '--dependency=aftercorr%s' % all_prep_jobs
-    run_refinement = str(subprocess.check_output(RUN_REFINEMENT))
-
-    refinement_id = ''.join(d for d in run_refinement if d.isdigit())
-
-    # Rescoring and Clustering
-    if not os.path.exists(clustering_dir):
-        os.makedirs(clustering_dir)
-    create_batch(receptor_path, 'clustering')
-    if not native:  # If native structure was not provided, top scoring structure will be taken as native for rescoring
-        with open(os.path.join(refinement_dir, 'extract_model'), 'w') as extract_pdb:
-            extract_pdb.write(SBATCH_EXTRACT_TOP_MODEL)
-        with open(os.path.join(refinement_dir, 'rescoring'), 'w') as rescore:
-            if talaris:
-                rescore.write(SBATCH_RESCORING.format(sc_func='talaris14'))
-            else:
-                rescore.write(SBATCH_RESCORING.format(sc_func='ref2015'))
-        RUN_EXTRACT_TOP_MODEL[1] = '--dependency=aftercorr:%s' % refinement_id
-        extract_model = str(subprocess.check_output(RUN_EXTRACT_TOP_MODEL))
-
-        extract_model_id = ''.join(d for d in extract_model if d.isdigit())
-        RUN_RESCORING[1] = '--dependency=aftercorr:%s' % extract_model_id
-        rescoring = str(subprocess.check_output(RUN_RESCORING))
-
-        rescoring_id = ''.join(d for d in rescoring if d.isdigit())
-        os.chdir(clustering_dir)
-        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % rescoring_id
-        subprocess.call(RUN_CLUSTERING)
-    else:
-        os.chdir(clustering_dir)
-        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % refinement_id
-        subprocess.call(RUN_CLUSTERING)
-    os.chdir(root)
-
-
 def run_protocol(peptide_sequence, receptor):
     
     if native:
@@ -852,7 +877,7 @@ def run_protocol(peptide_sequence, receptor):
     # run piper docking, extract top 250 models from each run, run FlexPepDock, clustering,
     # rescoring and get top 10 models
 
-    run_piper_fpd(os.path.basename(receptor).lower())
+    run_piper_fpd_jobs(os.path.basename(receptor).lower())
 
 
 if __name__ == "__main__":
@@ -872,6 +897,7 @@ if __name__ == "__main__":
     parser.add_argument('--receptor_min', dest='minimize_receptor', action='store_true', default=False)
     parser.add_argument('--native', dest='native_structure', default=None)
     parser.add_argument('--jd3', dest='job_distributor', action='store_true', default=False)
+    parser.add_argument('--sec_struct', dest='ss_pred', default=None)
 
     arguments = parser.parse_args()
 
@@ -889,9 +915,18 @@ if __name__ == "__main__":
     minimization = arguments.minimize_receptor
     native = arguments.native_structure
     jd3 = arguments.job_distributor
+    sec_struct = arguments.ss_pred
 
     if native:
         native_path = os.path.abspath(native)
+    if sec_struct:
+        with open(sec_struct, 'r') as ss_hanler:
+            ss_pred = ss_hanler.readline().strip()
+        for char in ss_pred:
+            if char not in PSIPRED_OUTPUT:
+                print('Wrong secondary structure file format. A valid file should contain only 1 line with C, H or E '
+                      'letters')
+                sys.exit()
 
     # Define all the directories that will be created:
     root = os.getcwd()
