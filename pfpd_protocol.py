@@ -61,11 +61,11 @@ PREPACK_TALARIS = 'mpirun -n 5 ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDockin
 
 FPD = 'ls *gz >input_list\n' \
       'mpirun ' + os.path.join(ROSETTA_BIN, 'FlexPepDocking.mpiserialization.linuxgccrelease') + \
-      ' -database ' + ROSETTA_DB + ' @{flags} >refinement_log'
+      ' -database ' + ROSETTA_DB + ' @{flags} >>refinement_log'
 
 FPD_TALARIS = 'ls *gz >input_list\n' \
               'mpirun ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
-              ' -database ' + ROSETTA_2016_DB + ' @{flags} >refinement_log'
+              ' -database ' + ROSETTA_2016_DB + ' @{flags} >>refinement_log'
 EXTRACT_MODEL = 'python ' + PFPD_SCRIPTS + 'extract_top_model.py'
 RESCORING = 'python ' + PFPD_SCRIPTS + 'rescoring.py {sc_func}'
 CLUSTERING = 'python ' + PFPD_SCRIPTS + 'clustering.py 2.0 {native} {decoys}'
@@ -160,7 +160,7 @@ SBATCH_EXTRACT_TOP_MODEL = '#!/bin/bash\n' \
                            '#SBATCH --get-user-env\n' \
                            + EXTRACT_MODEL
 SBATCH_RESCORING = '#!/bin/bash\n' \
-                   '#SBATCH --ntasks=50\n' \
+                   '#SBATCH --ntasks=300\n' \
                    '#SBATCH --time=30:00:00\n' \
                    '#SBATCH --get-user-env\n' \
                    + RESCORING
@@ -850,7 +850,7 @@ def create_batch(receptor, run, i=0):
 
 
 def run_protocol(peptide_sequence, receptor):
-    
+
     if native:
         check_native_structure()
 
