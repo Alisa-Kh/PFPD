@@ -75,11 +75,12 @@ CLUSTERING = 'python ' + PFPD_SCRIPTS + 'clustering.py 2.0 {native} {decoys}'
 PDBPREP = 'perl ' + PIPER_BIN + 'phplibbin/pdbprep.pl {}'
 PDBNMD = 'perl ' + PIPER_BIN + 'phplibbin/pdbnmd.pl "{}"' + ' ?'
 
-PIPER_DOCKING = PIPER_BIN + 'piper.acpharis.omp.20120803 -vv -c1.0 -k4 --msur_k=1.0' \
-                ' --maskr=1.0 -T FFTW_EXHAUSTIVE -R {decoys} -t 1 -p ' + PIPER_DIR +\
-                'prms/atoms.0.0.4.prm.ms.3cap+0.5ace.Hr0rec -f ' + PIPER_DIR + \
-                'prms/coeffs.0.0.4.motif -r ' + PIPER_DIR + 'prms/rot70k.0.0.4.prm ' \
-                '{r} {l} >piper.log'
+PIPER_DOCKING = PIPER_BIN + 'piper -vv -c1.0 -k4 --msur_k=1.0' \
+                ' --maskr=1.0 -T FFTW_EXHAUSTIVE -R {decoys} -t 1 -p ' + PIPER_DIR + \
+                'prms/atoms.0.0.6.prm.ms.3cap+0.5ace.Hr0rec -f ' + PIPER_DIR + \
+                'prms/coeffs.0.0.6.motif -r ' + PIPER_DIR + 'prms/rot70k.0.0.4.prm ' \
+                                                            '{r} {l} >piper.log'
+
 EXTRACT_PIPER_MODELS = "for f in `awk '{print $1}' ft.000.00 | head -%s`;" \
                        "do if [ ! -f {f}.pdb ]; then " + PIPER_DIR + "apply_ftresult.py " \
                        "-i $f ft.000.00 " + PIPER_DIR + "prms/rot70k.0.0.4.prm %s " \
@@ -98,7 +99,7 @@ PREPARE_FPD_IN = "piper_run=`pwd | awk -F'/' '{print $NF}'`\nfor f in `ls [0-9]*
 
 NUM_OF_FRAGS = 50  # should be 50
 PIPER_MODELS_EXTRACTED = str(250)  # should be 250
-PIPER_MODELS_GENERATED = str(70000)  # should be 70000
+N_ROTS = str(70000)  # should be 70000
 
 FRAGS_FILE = 'frags.100.{}mers'
 THREE_TO_ONE_AA = {'G': 'GLY',
@@ -380,6 +381,8 @@ def check_native_structure():
 
 def make_pick_fragments(pep_seq):
     """Run fragment picker"""
+    if os.path.exists(frag_picker_dir) and os.path.isfile(FRAGS_FILE.format(pep_length)):
+        return
     if not os.path.exists(frag_picker_dir):
         os.makedirs(frag_picker_dir)
     # Create fasta file:
@@ -417,34 +420,34 @@ def make_pick_fragments(pep_seq):
 
 def create_params_file(frags):
     """Read only needed values from frags_file and store them in frags_parameters file"""
-    parameters_sets = []
-    frags_parameters = open('frags_parameters', 'w+')
-    with open(frags) as frags_file:
-        all_file_lines = frags_file.readlines()
-
-    # Get parameters and save them in parameters_sets list
-    j = 0
-    for i in range(2, len(all_file_lines)):
-        if j % (pep_length + 1) == 0:
-            first_line_in_set = all_file_lines[i]
-            last_line_in_set = all_file_lines[i+(pep_length-1)]
-            seq = ""
-            for k in range(i, i+pep_length):
-                line = all_file_lines[k].split()
-                seq += line[3]
-            first_line_words = first_line_in_set.split()
-            last_line_words = last_line_in_set.split()
-            pdb = first_line_words[0]
-            chain = first_line_words[1]
-            start_res = first_line_words[2]
-            end_res = last_line_words[2]
-            parameters_sets.append([pdb, chain, start_res, end_res, seq])
-        j += 1
-    for item in parameters_sets:
-        for par in item:
-            frags_parameters.write("%s\t" % par)
-        frags_parameters.write("\n")
-    frags_parameters.close()
+    if not os.path.isfile('frags_parameters'):
+        parameters_sets = []
+        frags_parameters = open('frags_parameters', 'w+')
+        with open(frags) as frags_file:
+            all_file_lines = frags_file.readlines()
+        # Get parameters and save them in parameters_sets list
+        j = 0
+        for i in range(2, len(all_file_lines)):
+            if j % (pep_length + 1) == 0:
+                first_line_in_set = all_file_lines[i]
+                last_line_in_set = all_file_lines[i+(pep_length-1)]
+                seq = ""
+                for k in range(i, i+pep_length):
+                    line = all_file_lines[k].split()
+                    seq += line[3]
+                first_line_words = first_line_in_set.split()
+                last_line_words = last_line_in_set.split()
+                pdb = first_line_words[0]
+                chain = first_line_words[1]
+                start_res = first_line_words[2]
+                end_res = last_line_words[2]
+                parameters_sets.append([pdb, chain, start_res, end_res, seq])
+            j += 1
+        for item in parameters_sets:
+            for par in item:
+                frags_parameters.write("%s\t" % par)
+            frags_parameters.write("\n")
+        frags_parameters.close()
     with open('frags_parameters', 'r') as params:
         all_frags = params.readlines()
     return all_frags
@@ -508,6 +511,18 @@ def extract_frag(pdb, start, end, outfile):
 
 def process_frags(pep_sequence, fragments, add_frags_num=0):
     """Process and extract frags, filter bad fragments"""
+    pdb_resfiles_dict = dict()  # pdbs and their resfiles
+    # in case there are fragments
+    if os.path.isdir(fragments_dir) and os.path.isdir(resfiles_dir):
+        if count_pdbs(fragments_dir) == 50 and len([resf for resf in os.listdir(resfiles_dir) if
+                                                   os.path.isfile(os.path.join(resfiles_dir, resf))]):
+            for frag in os.listdir(fragments_dir):
+                if os.path.splitext(os.path.basename(frag))[1] == '.pdb':
+                    pdb_resfiles_dict[os.path.basename(frag)] = 'resfile_' + os.path.splitext(os.path.basename(frag))[0]
+            return pdb_resfiles_dict
+        else:
+            os.removedirs(fragments_dir)
+            os.removedirs(resfiles_dir)
     # extract and append parameters to different lists
     pdbs = []
     chains = []
@@ -527,12 +542,10 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
     # create directory for top 50 frags
     if not os.path.exists(fragments_dir):
         os.makedirs(fragments_dir)
-
     # create directory for storing resfiles
     if not os.path.exists(resfiles_dir):
         os.makedirs(resfiles_dir)
 
-    pdb_resfiles_dict = dict()  # pdbs and their resfiles
     os.chdir(fragments_dir)
     print("**************Extracting fragments**************")
     # Fetch PDBs, extract fragments and create resfiles
@@ -603,6 +616,8 @@ def create_resfile(ori_seq, chain, start, sequence, fragment_name):
 
 def create_xml(pdb_resfile_dict):
     """Create xml file for jd3_fixbb with 50 jobs with different pdbs and refiles"""
+    if os.path.isdir(fixbb_dir) and os.path.isfile(fixbb_dir + '/design.xml'):
+        return
     job_string = '<Job>\n' \
                  '\t<Input>\n' \
                  '\t\t<PDB filename="../{}"/>\n' \
@@ -662,12 +677,19 @@ def extract_more_frags(n_frags, defective_from_fixbb):
 
 def run_fixbb(pdb_and_resfiles):
     """Run fixbb design (option to restore talaris behaviour)"""
-    if not os.path.exists(fixbb_dir):
-        os.makedirs(fixbb_dir)
+    if os.path.isdir(fixbb_dir):
+        if count_pdbs(fixbb_dir) == 50:
+            return
+        else:
+            for file in os.listdir(fixbb_dir):
+                os.remove(os.path.join(fixbb_dir, file))
+            os.removedirs(fixbb_dir)
+    os.makedirs(fixbb_dir)
     os.chdir(fixbb_dir)
     print("**************Fixbb design...**************")
     if talaris:
         if jd3:
+            create_xml(pdb_and_resfiles)
             os.system(FIXBB_JD3_TALARIS.format('design.xml'))
         else:
             for pdb, resfile in pdb_and_resfiles.items():
@@ -675,6 +697,7 @@ def run_fixbb(pdb_and_resfiles):
                                                resfile=os.path.join(resfiles_dir, resfile)))
     else:
         if jd3:
+            create_xml(pdb_and_resfiles)
             os.system(FIXBB_JD3.format('design.xml'))
         else:
             for pdb, resfile in pdb_and_resfiles.items():
@@ -721,9 +744,10 @@ def rename_chain(structure, chain_id):
 
 def process_for_piper(receptor):
     """Prepare inputs for piper run"""
+    if os.path.exists(piper_dir):
+        return
     frags_list = []
-    if not os.path.exists(piper_dir):  # Create directory
-        os.makedirs(piper_dir)
+    os.makedirs(piper_dir)
     print("**************Preparing PIPER inputs**************")
     for frag in os.listdir(fixbb_dir):
         if os.path.splitext(frag)[1] == '.pdb':   # Rename chain ID to 'B'
@@ -822,7 +846,7 @@ def create_batch(receptor, run, i=0):
     lig_name = 'lig.' + "{:04}".format(i) + '_nmin.pdb'
     if run == 'piper':
         with open('run_piper', 'w') as piper:
-            piper.write(SBATCH_PIPER.format(decoys=PIPER_MODELS_GENERATED, r=rec_name, l=lig_name))
+            piper.write(SBATCH_PIPER.format(decoys=N_ROTS, r=rec_name, l=lig_name))
     elif run == 'decoys':
         with open('run_extract_decoys', 'w') as extract_decoys:
             extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % (PIPER_MODELS_EXTRACTED, lig_name))
@@ -835,7 +859,6 @@ def create_batch(receptor, run, i=0):
             if talaris:
                 refinement.write(SBATCH_FPD.format(fpd_version=FPD_TALARIS.format(flags='refine_flags')))
             else:
-                # fpd = FPD.format(flags='refine_flags')
                 refinement.write(SBATCH_FPD.format(fpd_version=FPD.format(flags='refine_flags')))
     elif run == 'clustering':
         with open(os.path.join(clustering_dir, 'run_clustering'), 'w') as cluster:
@@ -861,9 +884,6 @@ def run_protocol(peptide_sequence, receptor):
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
     pdb_and_resfiles = process_frags(peptide_seq, all_frags)
 
-    if jd3:
-        create_xml(pdb_and_resfiles)  # create xml for running fixbb with JD3
-
     # run fixbb
     run_fixbb(pdb_and_resfiles)
 
@@ -881,7 +901,6 @@ def run_protocol(peptide_sequence, receptor):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description='You need to provide a pdb file for receptor '
                                                  'and a text file with peptide sequence (or FASTA file)\n'
                                                  '\nIf you want to run it with talaris2014, add '
@@ -920,8 +939,8 @@ if __name__ == "__main__":
     if native:
         native_path = os.path.abspath(native)
     if sec_struct:
-        with open(sec_struct, 'r') as ss_hanler:
-            ss_pred = ss_hanler.readline().strip()
+        with open(sec_struct, 'r') as ss_handler:
+            ss_pred = ss_handler.readline().strip()
         for char in ss_pred:
             if char not in PSIPRED_OUTPUT:
                 print('Wrong secondary structure file format. A valid file should contain only 1 line with C, H or E '

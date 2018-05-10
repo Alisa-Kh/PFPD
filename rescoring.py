@@ -20,8 +20,8 @@ def rescoring_flags(lowest_sc_struct):
 def rescoring():
     with open('score.sc', 'r') as score_file:
         scores = score_file.readlines()
-        header = scores[1].split()
-        scores = scores[2:]  # SEQUENCE line + header
+        header = scores[1].split()  # scores[0] = SEQUENCE:
+        scores = scores[2:]
         reweighted_column = header.index('reweighted_sc')
         description_column = header.index('description')
 
