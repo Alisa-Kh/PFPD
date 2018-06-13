@@ -5,20 +5,19 @@ import os
 import pfpd_protocol as protocol
 import math
 
-radius = sys.argv[1]
-native = sys.argv[2]
-silent_input = sys.argv[3]
-
 HEADER = 'DecoyID\t\tClusterN MemberID\tI_sc\tReweighted_sc'
 FINAL_DIR = '../../FINAL_RESULTS'
 CLUSTERING_DIR = os.getcwd()
 
 
 def create_pdb_list():
-    with open('../score.sc', 'r') as score_file:
+    with open(sc_file, 'r') as score_file:
         scores = score_file.readlines()
         header = scores[1].split()
-        scores = scores[2:]  # SEQUENCE line + header out
+        for i, line in enumerate(scores):
+            if len(line.strip().split()) > 1 and line.split()[1] != 'total_score':
+                scores = scores[i:]  # Scores start from here
+                break
         reweighted_column = header.index('reweighted_sc')
         description_column = header.index('description')
 
@@ -32,7 +31,7 @@ def create_pdb_list():
             i += 1
             if i >= clustering_pool_num:
                 break
-    return clustering_pool_num
+    return clustering_pool_num, scores
 
 
 def define_actual_r():
@@ -53,11 +52,11 @@ def run_clustering(actual_r):
     os.system(os.path.join(protocol.ROSETTA_BIN, 'cluster.linuxgccrelease') +
               ' -in:file:silent {decoys} -in:file:silent_struct_type binary -database {DB}'
               ' -cluster:radius {actualR} -in:file:fullatom -tags `cat pdb_list`'
-              ' -silent_read_through_errors > clog'.format(decoys='../decoys.silent',
+              ' -silent_read_through_errors > clog'.format(decoys=silent_input,
                                                            DB=protocol.ROSETTA_DB, actualR=actual_r))
 
 
-def results_processing(clustering_pool_num):
+def results_processing():
     """Create score score lists"""
     print('Now printing results')
     with open('clog', 'r') as log:
@@ -65,21 +64,20 @@ def results_processing(clustering_pool_num):
     with open('cluster_list', 'w') as cluster_lst:
         decoys_lst = []
         final_lines_inx = whole_log.index('Timing: \n')
-        relevant_lines = whole_log[final_lines_inx - clustering_pool_num + 1:final_lines_inx]
+        relevant_lines = whole_log[final_lines_inx - clustering_pool + 1:final_lines_inx]
         for line in relevant_lines:
             cluster_lst.write(line.split()[2] + '\t' + line.split()[3] + '\t' + line.split()[4] + '\n')
             decoys_lst.append(line.split()[2] + '\t' + line.split()[3] + '\t' + line.split()[4])
-    with open('../score.sc', 'r') as score_file:
-        scores = score_file.readlines()
-        header = scores[1].split()
-        scores = scores[2:]
+    with open(sc_file, 'r') as score_file:
+        score_file.readline()  # 'SEQUENCE' line
+        header = score_file.readline().split()
     interface_sc_idx = header.index('I_sc')
     reweighted_sc_idx = header.index('reweighted_sc')
     description_idx = header.index('description')
     with open('cluster_list_sc', 'w') as cluster_lst_sc:
         cluster_lst_sc.write(HEADER + '\n')
         for decoy_line in decoys_lst:
-            for scores_line in scores:
+            for scores_line in score_lines:
                 if scores_line.split()[description_idx] == decoy_line.split()[0]:
                     cluster_lst_sc.write(decoy_line + '\t' + scores_line.split()[interface_sc_idx] + '\t' +
                                          scores_line.split()[reweighted_sc_idx] + '\n')
@@ -104,14 +102,21 @@ def collect_results():
             cur_line = top_reweighted.readline().split()
             struct = 'c.{cluster}.{member}.pdb'.format(cluster=cur_line[1], member=cur_line[2])
             os.system(protocol.COPY.format(os.path.join(CLUSTERING_DIR, struct), FINAL_DIR))
+    os.remove('../refinement/*.gz')
 
 if __name__ == "__main__":
-    os.rename('../score.sc', '../score_before_rescoring.sc')
-    os.rename('../decoys.silent', '../old_decoys.silent')
-    os.rename('../rescore.sc', '../score.sc')
-    os.rename('../decoys_rescored.silent', '../decoys.silent')
-    clustering_pool = create_pdb_list()
+
+    radius = sys.argv[1]
+    native = sys.argv[2]
+    silent_input = sys.argv[3]
+
+    if os.path.isfile('rescore.sc'):
+        sc_file = '../rescore.sc'
+    else:
+        sc_file = '../score.sc'
+
+    clustering_pool, score_lines = create_pdb_list()
     actual_radius = define_actual_r()
     run_clustering(actual_radius)
-    results_processing(clustering_pool)
+    results_processing()
     collect_results()
