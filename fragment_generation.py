@@ -3,84 +3,8 @@
 import argparse
 import sys
 import os
+import pfpd_const as pfpd
 
-#########################
-""" Change paths here """
-#########################
-
-ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'
-ROSETTA_2016_DIR = '/vol/ek/share/rosetta/rosetta_src_2016.20.58704_bundle/'
-
-ROSETTA_DB = os.path.join(ROSETTA_DIR, 'main/database')
-ROSETTA_2016_DB = os.path.join(ROSETTA_2016_DIR, 'main/database')
-
-ROSETTA_BIN = os.path.join(ROSETTA_DIR, 'main/source/bin/')
-ROSETTA_2016_BIN = os.path.join(ROSETTA_2016_DIR, 'main/source/bin/')
-
-ROSETTA_TOOLS = os.path.join(ROSETTA_DIR, 'tools/')
-
-# Path to this script (and also make_fragments.pl, clustering.py)
-# Change paths also in make_fragments.pl script itself
-PFPD_SCRIPTS = '/vol/ek/Home/alisa/scripts/piper-fpd/'
-
-######################################
-"""DO NOT change following commands"""
-######################################
-
-# Commands (ROSETTA)
-
-CLEAN_PDB = os.path.join(ROSETTA_TOOLS, 'protein_tools/scripts/clean_pdb.py >> pdb_log ') + ' {} {}'
-
-FIXBB_JD3 = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiserialization.linuxgccrelease') + \
-            ' -database ' + ROSETTA_DB + ' -in:file:job_definition_file {} > fixbb.log'
-FIXBB_JD3_TALARIS = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiserialization.linuxgccrelease') + \
-                    ' -database ' + ROSETTA_DB + ' -restore_talaris_behavior ' \
-                                                 '-in:file:job_definition_file {} > fixbb.log'
-FIXBB = os.path.join(ROSETTA_BIN, 'fixbb.linuxgccrelease') + ' -database ' + ROSETTA_DB + \
-        ' -in:file:s {frag} -resfile {resfile} -ex1 -ex2 -use_input_sc -scorefile design_score.sc >design.log'
-FIXBB_TALARIS = os.path.join(ROSETTA_2016_BIN, 'fixbb.linuxgccrelease') + ' -database ' + ROSETTA_2016_DB + \
-                ' -in:file:s {frag} -resfile {resfile} -ex1 -ex2 -use_input_sc -scorefile design_score.sc >design.log'
-
-MAKE_FRAGMENTS = 'perl ' + os.path.join(PFPD_SCRIPTS, 'make_fragments.pl') + \
-                 ' -verbose -id xxxxx {} 2>log'
-
-FRAG_PICKER = os.path.join(ROSETTA_BIN, 'fragment_picker.linuxgccrelease') + \
-              ' -database ' + ROSETTA_DB + ' @flags >makeFrags.log'
-
-# Other commands
-
-COPY = 'cp {} {}'
-
-# Other constants
-
-NUM_OF_FRAGS = 50  # should be 50
-
-FRAGS_FILE = 'frags.100.{}mers'
-THREE_TO_ONE_AA = {'G': 'GLY',
-                   'A': 'ALA',
-                   'V': 'VAL',
-                   'L': 'LEU',
-                   'I': 'ILE',
-                   'P': 'PRO',
-                   'C': 'CYS',
-                   'M': 'MET',
-                   'H': 'HIS',
-                   'F': 'PHE',
-                   'Y': 'TYR',
-                   'W': 'TRP',
-                   'N': 'ASN',
-                   'Q': 'GLN',
-                   'S': 'SER',
-                   'T': 'THR',
-                   'K': 'LYS',
-                   'R': 'ARG',
-                   'D': 'ASP',
-                   'E': 'GLU'}
-
-PSIPRED_OUTPUT = ['C', 'E', 'H']
-
-PDB = '{}_{}.pdb'
-FASTA = '{}_{}.fasta'
 
 ######################################################################
 """It is not recommended to change the flags, unless you know what you 
@@ -96,7 +20,7 @@ def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.check
                      'ProfileScoreL1\t200\t1.0\t-\n')
     # Write flags files
     with open('flags', 'w') as flags_file:
-        flags_file.write('-in:file:vall\t' + ROSETTA_TOOLS +
+        flags_file.write('-in:file:vall\t' + pfpd.ROSETTA_TOOLS +
                          'fragment_tools/vall.jul19.2011.gz\n'
                          '-in:file:checkpoint\t{check}\n'
                          '-frags:describe_fragments\tfrags.fsc\n'
@@ -169,7 +93,7 @@ def make_pick_fragments(pep_seq, ss_pred=None):
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
     os.chdir(frag_picker_dir)
 
-    os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+    os.system(pfpd.MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
     if sec_struct:
         os.rename('xxxxx.psipred_ss2', 'xxxxx.psipred_ss2_orig')
         with open('xxxxx.psipred_ss2', 'w') as psi_new:
@@ -200,8 +124,8 @@ def make_pick_fragments(pep_seq, ss_pred=None):
     else:
         fragments_flags_and_cfg()
     print("**************Picking fragments**************")
-    os.system(FRAG_PICKER)  # Run fragment picker
-    os.system(COPY.format(FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
+    os.system(pfpd.FRAG_PICKER)  # Run fragment picker
+    os.system(pfpd.COPY.format(pfpd.FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
     os.chdir(root)
 
 
@@ -281,7 +205,7 @@ def review_frag(outfile, sequence):
         residues = ''
         cur_line = frag.readline()
         for i in range(pep_length):
-            if cur_line[:4] == 'ATOM' and cur_line[17:20] == THREE_TO_ONE_AA[sequence[i]]:
+            if cur_line[:4] == 'ATOM' and cur_line[17:20] == pfpd.THREE_TO_ONE_AA[sequence[i]]:
                 if cur_line[54:60].strip() == 0.00:
                     print("Zero occupancy atoms!")
                     return bad_frag(outfile)
@@ -379,10 +303,10 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
         outfile = fragment_name + '.pdb'
         if chain == '_':
             chain = 'A'
-        os.system(CLEAN_PDB.format(pdb, chain))  # get clean pdb and it's fasta
+        os.system(pfpd.CLEAN_PDB.format(pdb, chain))  # get clean pdb and it's fasta
 
-        pdb_full = PDB.format(pdb.upper(), chain)  # names of clean_pdb output files
-        fasta_name = FASTA.format(pdb.upper(), chain)
+        pdb_full = pfpd.PDB.format(pdb.upper(), chain)  # names of clean_pdb output files
+        fasta_name = pfpd.FASTA.format(pdb.upper(), chain)
 
         if os.path.exists(pdb_full):
             print("Extracting fragment")
@@ -408,7 +332,7 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, fasta_start, sequence, fragment_name)
                 pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
-                if frags_count >= NUM_OF_FRAGS + add_frags_num:
+                if frags_count >= pfpd.NUM_OF_FRAGS + add_frags_num:
                     print("**************Finished with fragments**************")
                     break
             else:
@@ -480,8 +404,8 @@ def check_designed_frags():
         if os.path.splitext(os.path.basename(frag))[1] == '.pdb':
             review_frag(frag, peptide_seq)
     frags_count = count_pdbs(fixbb_dir)
-    if frags_count < NUM_OF_FRAGS:
-        return NUM_OF_FRAGS - frags_count
+    if frags_count < pfpd.NUM_OF_FRAGS:
+        return pfpd.NUM_OF_FRAGS - frags_count
     else:
         return False
 
@@ -495,7 +419,7 @@ def extract_more_frags(n_frags, defective_from_fixbb):
         bad_frags_shift = count_pdbs(bad_frags_dir) + defective_from_fixbb
     else:
         bad_frags_shift = defective_from_fixbb
-    add_frags = add_frags[NUM_OF_FRAGS + bad_frags_shift:]
+    add_frags = add_frags[pfpd.NUM_OF_FRAGS + bad_frags_shift:]
     return process_frags(peptide_seq, add_frags, n_frags)
 
 
@@ -508,19 +432,19 @@ def run_fixbb(pdb_and_resfiles):
     if talaris:
         if jd3:
             create_xml(pdb_and_resfiles)
-            os.system(FIXBB_JD3_TALARIS.format('design.xml'))
+            os.system(pfpd.FIXBB_JD3_TALARIS.format('design.xml'))
         else:
             for pdb, resfile in pdb_and_resfiles.items():
-                os.system(FIXBB_TALARIS.format(frag=os.path.join(fragments_dir, pdb),
-                                               resfile=os.path.join(resfiles_dir, resfile)))
+                os.system(pfpd.FIXBB_TALARIS.format(frag=os.path.join(fragments_dir, pdb),
+                                                    resfile=os.path.join(resfiles_dir, resfile)))
     else:
         if jd3:
             create_xml(pdb_and_resfiles)
-            os.system(FIXBB_JD3.format('design.xml'))
+            os.system(pfpd.FIXBB_JD3.format('design.xml'))
         else:
             for pdb, resfile in pdb_and_resfiles.items():
-                os.system(FIXBB.format(frag=os.path.join(fragments_dir, pdb),
-                                       resfile=os.path.join(resfiles_dir, resfile)))
+                os.system(pfpd.FIXBB.format(frag=os.path.join(fragments_dir, pdb),
+                                            resfile=os.path.join(resfiles_dir, resfile)))
 
     print("Done!")
     # If we need to extract additional fragments for more then once, we need to add bad fragments
@@ -568,7 +492,7 @@ def run_protocol(peptide_sequence):
         with open(sec_struct, 'r') as ss_h:
             ss_pred = ss_h.readline().strip()
         for char in ss_pred:
-            if char not in PSIPRED_OUTPUT:
+            if char not in pfpd.PSIPRED_OUTPUT:
                 print('Wrong secondary structure file format. A valid file should contain only 1 line with C, H or E '
                       'letters')
                 sys.exit()
@@ -579,7 +503,7 @@ def run_protocol(peptide_sequence):
     else:
         make_pick_fragments(peptide_sequence)
 
-    all_frags = create_params_file(FRAGS_FILE.format(str(pep_length)))
+    all_frags = create_params_file(pfpd.FRAGS_FILE.format(str(pep_length)))
 
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
     pdb_and_resfiles = process_frags(peptide_seq, all_frags)

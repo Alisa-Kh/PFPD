@@ -5,130 +5,7 @@ import sys
 import os
 import subprocess
 
-#########################
-""" Change paths here """
-#########################
-
-ROSETTA_DIR = '/vol/ek/Home/alisa/rosetta/Rosetta/'
-ROSETTA_2016_DIR = '/vol/ek/share/rosetta/rosetta_src_2016.20.58704_bundle/'
-
-ROSETTA_DB = os.path.join(ROSETTA_DIR, 'main/database')
-ROSETTA_2016_DB = os.path.join(ROSETTA_2016_DIR, 'main/database')
-
-ROSETTA_BIN = os.path.join(ROSETTA_DIR, 'main/source/bin/')
-ROSETTA_2016_BIN = os.path.join(ROSETTA_2016_DIR, 'main/source/bin/')
-
-ROSETTA_TOOLS = os.path.join(ROSETTA_DIR, 'tools/')
-
-# Path to this script (and also make_fragments.pl, clustering.py)
-# Change paths also in make_fragments.pl script itself
-PFPD_SCRIPTS = '/vol/ek/Home/alisa/scripts/piper-fpd/'
-
-PIPER_DIR = '/vol/ek/Home/alisa/PIPER/'
-PIPER_BIN = os.path.join(PIPER_DIR, 'bin/')
-
-######################################
-"""DO NOT change following commands"""
-######################################
-
-# Commands (ROSETTA)
-
-CLEAN_PDB = os.path.join(ROSETTA_TOOLS, 'protein_tools/scripts/clean_pdb.py >> pdb_log ') + ' {} {}'
-
-FIXBB_JD3 = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiserialization.linuxgccrelease') + \
-            ' -database ' + ROSETTA_DB + ' -in:file:job_definition_file {} > fixbb.log'
-FIXBB_JD3_TALARIS = 'mpirun -n 6 ' + os.path.join(ROSETTA_BIN, 'fixbb_jd3.mpiserialization.linuxgccrelease') + \
-                    ' -database ' + ROSETTA_DB + ' -restore_talaris_behavior ' \
-                     '-in:file:job_definition_file {} > fixbb.log'
-FIXBB = os.path.join(ROSETTA_BIN, 'fixbb.linuxgccrelease') + ' -database ' + ROSETTA_DB + \
-        ' -in:file:s {frag} -resfile {resfile} -ex1 -ex2 -use_input_sc -scorefile design_score.sc >design.log'
-FIXBB_TALARIS = os.path.join(ROSETTA_2016_BIN, 'fixbb.linuxgccrelease') + ' -database ' + ROSETTA_2016_DB + \
-                ' -in:file:s {frag} -resfile {resfile} -ex1 -ex2 -use_input_sc -scorefile design_score.sc >design.log'
-
-BUILD_PEPTIDE = os.path.join(ROSETTA_BIN, 'BuildPeptide.linuxgccrelease') + ' -in:file:fasta {}' \
-                ' -database ' + ROSETTA_DB + ' -out:file:o peptide.pdb > build_peptide.log'
-
-MAKE_FRAGMENTS = 'perl ' + os.path.join(PFPD_SCRIPTS, 'make_fragments.pl') + \
-                 ' -verbose -id xxxxx {} 2>log'
-
-FRAG_PICKER = os.path.join(ROSETTA_BIN, 'fragment_picker.linuxgccrelease') + \
-              ' -database ' + ROSETTA_DB + ' @flags >makeFrags.log'
-
-PREPACK = os.path.join(ROSETTA_BIN, 'FlexPepDocking.default.linuxgccrelease') + \
-          ' -database ' + ROSETTA_DB + ' @prepack_flags >ppk.log'
-PREPACK_TALARIS = 'mpirun -n 5 ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
-                  ' -database ' + ROSETTA_2016_DB + ' @prepack_flags >ppk.log'
-
-FPD = 'ls *gz >input_list\n' \
-      'mpirun ' + os.path.join(ROSETTA_BIN, 'FlexPepDocking.mpiserialization.linuxgccrelease') + \
-      ' -database ' + ROSETTA_DB + ' @{flags} >>refinement_log'
-
-FPD_TALARIS = 'ls *gz >input_list\n' \
-              'mpirun ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
-              ' -database ' + ROSETTA_2016_DB + ' @{flags} >>refinement_log'
-EXTRACT_MODEL = 'python ' + PFPD_SCRIPTS + 'extract_top_model.py'
-RESCORING = 'python ' + PFPD_SCRIPTS + 'rescoring.py {sc_func}'
-CLUSTERING = 'python ' + PFPD_SCRIPTS + 'clustering.py 2.0 {native} {decoys}'
-
-# Commands (PIPER)
-
-PDBPREP = 'perl ' + PIPER_BIN + 'phplibbin/pdbprep.pl {}'
-PDBNMD = 'perl ' + PIPER_BIN + 'phplibbin/pdbnmd.pl "{}"' + ' ?'
-
-PIPER_DOCKING = PIPER_BIN + 'piper -vv -c1.0 -k4 --msur_k=1.0' \
-                ' --maskr=1.0 -T FFTW_EXHAUSTIVE -R {decoys} -t 1 -p ' + PIPER_DIR + \
-                'prms/atoms.0.0.6.prm.ms.3cap+0.5ace.Hr0rec -f ' + PIPER_DIR + \
-                'prms/coeffs.0.0.6.motif -r ' + PIPER_DIR + 'prms/rot70k.0.0.4.prm ' \
-                                                            '{r} {l} >piper.log'
-
-EXTRACT_PIPER_MODELS = "for f in `awk '{print $1}' ft.000.00 | head -%s`;" \
-                       "do if [ ! -f {f}.pdb ]; then " + PIPER_DIR + "apply_ftresult.py " \
-                       "-i $f ft.000.00 " + PIPER_DIR + "prms/rot70k.0.0.4.prm %s " \
-                       "--out-prefix $f;fi;done"
-APPLY_FTRESULTS = 'python ' + PIPER_DIR + 'apply_ftresult.py -i {model} ft.000.00 ' \
-                  + PIPER_DIR + 'prms/rot70k.0.0.4.prm {lig} --out-prefix {out}'
-
-# Other commands
-
-COPY = 'cp {} {}'
-
-PREPARE_FPD_IN = "piper_run=`pwd | awk -F'/' '{print $NF}'`\nfor f in `ls [0-9]*.pdb`;" \
-                 "do cat %s ${f} | grep ATOM >%s/${piper_run}.${f};gzip %s/${piper_run}.${f};done"
-
-# Other constants
-
-NUM_OF_FRAGS = 50  # should be 50
-PIPER_MODELS_EXTRACTED = str(250)  # should be 250
-N_ROTS = str(70000)  # should be 70000
-
-FRAGS_FILE = 'frags.100.{}mers'
-THREE_TO_ONE_AA = {'G': 'GLY',
-                   'A': 'ALA',
-                   'V': 'VAL',
-                   'L': 'LEU',
-                   'I': 'ILE',
-                   'P': 'PRO',
-                   'C': 'CYS',
-                   'M': 'MET',
-                   'H': 'HIS',
-                   'F': 'PHE',
-                   'Y': 'TYR',
-                   'W': 'TRP',
-                   'N': 'ASN',
-                   'Q': 'GLN',
-                   'S': 'SER',
-                   'T': 'THR',
-                   'K': 'LYS',
-                   'R': 'ARG',
-                   'D': 'ASP',
-                   'E': 'GLU'}
-
-PSIPRED_OUTPUT = ['C', 'E', 'H']
-
-PDB = '{}_{}.pdb'
-FASTA = '{}_{}.fasta'
-BAD_NATIVE = "The native structure and the receptor should have the same sequence and the same length.\n" \
-             "Please provide a valid native structure"
+import pfpd_const as pfpd
 
 ######################################################################################################
 """WE are using SLURM workload manager. If you are using something else - change the commands below"""
@@ -138,18 +15,18 @@ SBATCH_PIPER = '#!/bin/sh\n' \
                '#SBATCH --ntasks=1\n' \
                '#SBATCH --time=20:00:00\n' \
                '#SBATCH --get-user-env\n'\
-               + PIPER_DOCKING
+               + pfpd.PIPER_DOCKING
 SBATCH_EXTRACT_TOP_DECOYS = "#!/bin/sh\n" \
                             "#SBATCH --nodes 1\n" \
                             "#SBATCH --ntasks=1\n" \
                             "#SBATCH --time=10:00:00\n" \
                             "#SBATCH --get-user-env\n" \
-                            + EXTRACT_PIPER_MODELS
+                            + pfpd.EXTRACT_PIPER_MODELS
 SBATCH_PREP_FPD_INPUT = "#!/bin/sh\n" \
                         "#SBATCH --ntasks=1\n" \
                         "#SBATCH --time=10:00:00\n" \
                         "#SBATCH --get-user-env\n" \
-                        + PREPARE_FPD_IN
+                        + pfpd.PREPARE_FPD_IN
 SBATCH_FPD = '#!/bin/bash\n' \
              '#SBATCH --ntasks=300\n' \
              '#SBATCH --time=50:00:00\n' \
@@ -159,17 +36,17 @@ SBATCH_EXTRACT_TOP_MODEL = '#!/bin/bash\n' \
                            '#SBATCH --ntasks=1\n' \
                            '#SBATCH --time=1:00:00\n' \
                            '#SBATCH --get-user-env\n' \
-                           + EXTRACT_MODEL
+                           + pfpd.EXTRACT_MODEL
 SBATCH_RESCORING = '#!/bin/bash\n' \
                    '#SBATCH --ntasks=300\n' \
                    '#SBATCH --time=30:00:00\n' \
                    '#SBATCH --get-user-env\n' \
-                   + RESCORING
+                   + pfpd.RESCORING
 SBATCH_CLUSTERING = '#!/bin/bash\n' \
                     '#SBATCH --ntasks=1\n' \
                     '#SBATCH --time=1:00:00\n' \
                     '#SBATCH --get-user-env\n' \
-                    + CLUSTERING
+                    + pfpd.CLUSTERING
 
 # 'dependency' in these commands will be changed to specific 'dependency=aftercorr$job_num' before run
 
@@ -186,17 +63,17 @@ RUN_CLUSTERING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_clustering
 #############################################################################################
 
 
-def create_batch(receptor, run, i=0):
+def create_batch(receptor, run, **kwargs):
     """Create batch scripts for jobs that will be sent to cluster, such as
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
     rec_name = os.path.join(piper_dir, receptor.lower() + '_nmin.pdb')
-    lig_name = 'lig.' + "{:04}".format(i) + '_nmin.pdb'
+    lig_name = 'lig.' + "{:04}".format(kwargs['lig_n']) + '_nmin.pdb'
     if run == 'piper':
         with open('run_piper', 'w') as piper:
-            piper.write(SBATCH_PIPER.format(decoys=N_ROTS, r=rec_name, l=lig_name))
+            piper.write(SBATCH_PIPER.format(decoys=pfpd.N_ROTS, r=rec_name, l=lig_name))
     elif run == 'decoys':
         with open('run_extract_decoys', 'w') as extract_decoys:
-            extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % (PIPER_MODELS_EXTRACTED, lig_name))
+            extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % (pfpd.PIPER_MODELS_EXTRACTED, lig_name))
     elif run == 'prepare_inputs':
         ppk_receptor = os.path.join(prepack_dir, receptor)
         with open('run_prepare_fpd_inputs', 'w') as inputs:
@@ -204,18 +81,18 @@ def create_batch(receptor, run, i=0):
     elif run == 'refinement':
         with open(os.path.join(refinement_dir, 'run_refinement'), 'w') as refinement:
             if talaris:
-                refinement.write(SBATCH_FPD.format(fpd_version=FPD_TALARIS.format(flags='refine_flags')))
+                refinement.write(SBATCH_FPD.format(fpd_version=pfpd.FPD_TALARIS.format(flags='refine_flags')))
             else:
-                refinement.write(SBATCH_FPD.format(fpd_version=FPD.format(flags='refine_flags')))
+                refinement.write(SBATCH_FPD.format(fpd_version=pfpd.FPD.format(flags='refine_flags')))
     elif run == 'clustering':
         with open(os.path.join(clustering_dir, 'run_clustering'), 'w') as cluster:
             if not talaris:
                 cluster.write(SBATCH_CLUSTERING.format(native=os.path.join(prepack_dir, 'start.pdb'),
-                                                       decoys=os.path.join(refinement_dir, silent_file),
+                                                       decoys=os.path.join(refinement_dir, kwargs['silent']),
                                                        sc_func='ref2015'))
             else:
                 cluster.write(SBATCH_CLUSTERING.format(native=os.path.join(prepack_dir, 'start.pdb'),
-                                                       decoys=os.path.join(refinement_dir, silent_file),
+                                                       decoys=os.path.join(refinement_dir, kwargs['silent']),
                                                        sc_func='talaris14'))
 
 
@@ -226,16 +103,16 @@ def send_piper_jobs(processed_receptor):
     # PIPER step
     os.chdir(piper_dir)
     ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
-    for i in range(1, NUM_OF_FRAGS + 1):
+    for i in range(1, pfpd.NUM_OF_FRAGS + 1):
         run_dir = "{:02}".format(i)
         if not os.path.exists(run_dir):
             os.makedirs(run_dir)
         os.chdir(run_dir)
-        os.system(COPY.format(os.path.join(piper_dir, 'ligands', 'lig.' + "{:04}".format(i) + '_nmin.pdb'),
-                              'lig.' + "{:04}".format(i) + '_nmin.pdb'))
-        create_batch(receptor_name, 'piper', i)
-        create_batch(receptor_name, 'decoys', i)
-        create_batch(ppk_receptor, 'prepare_inputs', i)
+        os.system(pfpd.COPY.format(os.path.join(piper_dir, 'ligands', 'lig.' + "{:04}".format(i) + '_nmin.pdb'),
+                                   'lig.' + "{:04}".format(i) + '_nmin.pdb'))
+        create_batch(receptor_name, 'piper', lig_n=i)
+        create_batch(receptor_name, 'decoys', lig_n=i)
+        create_batch(ppk_receptor, 'prepare_inputs')
 
         # run PIPER docking, extract top 250 decoys and prepare input for refinement
         run_piper = str(subprocess.check_output(RUN_PIPER))
@@ -251,7 +128,7 @@ def send_piper_jobs(processed_receptor):
     return jobs_list, receptor_name
 
 
-def run_piper_fpd_jobs(processed_receptor):
+def run_piper_fpd_jobs(processed_receptor, native_path, silent_f):
     """Run PIPER, FPD and clustering"""
     jobs_list, receptor_name = send_piper_jobs(processed_receptor)
     # FPD refinement
@@ -259,7 +136,7 @@ def run_piper_fpd_jobs(processed_receptor):
         os.makedirs(refinement_dir)
     os.chdir(refinement_dir)
     create_batch(receptor_name, 'refinement')
-    refine_flags_file()
+    refine_flags_file(native_path)
     all_prep_jobs = ''
     for job_id in jobs_list:
         all_prep_jobs += ':' + job_id  # there are multiple jobs and a semicolon needs to be written before each of them
@@ -271,7 +148,7 @@ def run_piper_fpd_jobs(processed_receptor):
     # Rescoring and Clustering
     if not os.path.exists(clustering_dir):
         os.makedirs(clustering_dir)
-    create_batch(receptor_path, 'clustering')
+    create_batch(receptor_path, 'clustering', silent=silent_f)
     if not native:  # If native structure was not provided, top scoring structure will be taken as native for rescoring
         with open(os.path.join(refinement_dir, 'extract_model'), 'w') as extract_pdb:
             extract_pdb.write(SBATCH_EXTRACT_TOP_MODEL)
@@ -312,7 +189,7 @@ def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.check
                      'ProfileScoreL1\t200\t1.0\t-\n')
     # Write flags files
     with open('flags', 'w') as flags_file:
-        flags_file.write('-in:file:vall\t' + ROSETTA_TOOLS +
+        flags_file.write('-in:file:vall\t' + pfpd.ROSETTA_TOOLS +
                          'fragment_tools/vall.jul19.2011.gz\n'
                          '-in:file:checkpoint\t{check}\n'
                          '-frags:describe_fragments\tfrags.fsc\n'
@@ -350,7 +227,7 @@ def prepack_flags_file(receptor):
                     '-mute protocols.jd2.PDBJobInputter')
 
 
-def refine_flags_file():
+def refine_flags_file(native_path):
     with open(os.path.join(refinement_dir, 'refine_flags'), 'w') as flags:
         flags.write('-in:file:l input_list\n'
                     '-scorefile score.sc\n'
@@ -382,7 +259,7 @@ def refine_flags_file():
 ####################################################
 
 
-def check_native_structure():
+def check_native_structure(native_path):
     """ Check the length of native struct with the length of the receptor + pep"""
     with open(native_path, 'r') as n:
         native_calphas = 0
@@ -398,28 +275,10 @@ def check_native_structure():
                 rec_calphas += 1
         complex_calphas = rec_calphas + pep_length
     if native_calphas != complex_calphas:
-        print(BAD_NATIVE)
+        print(pfpd.BAD_NATIVE)
         sys.exit()
     else:
         return
-
-    # with open(native_path) as nat:
-    #     residues = ''
-    #     cur_line = nat.readline()
-    #     for i in range(receptor_len + pep_length):
-    #         if cur_line[:4] == 'ATOM':
-    #             if cur_line[17:20] == THREE_TO_ONE_AA[complex_seq[i]]:
-    #                 residues += complex_seq[i]
-    #                 cur_resi = cur_line[22:27].strip()
-    #                 while cur_resi == cur_line[22:27].strip():
-    #                     cur_line = nat.readline()
-    #             else:
-    #                 print(BAD_NATIVE)
-    #                 sys.exit()
-    #     if residues == complex_seq:
-    #         return
-    # print(BAD_NATIVE)
-    # sys.exit()
 
 
 def cut_file(col_num):
@@ -469,7 +328,7 @@ def create_psipred_from_full_protein(full_pep_fasta):
     make_pick_fragments(full_seq)
 
 
-def make_pick_fragments(pep_seq):
+def make_pick_fragments(pep_seq, ss_pred=None):
     """Run fragment picker"""
     if not os.path.exists(frag_picker_dir):
         os.makedirs(frag_picker_dir)
@@ -478,7 +337,7 @@ def make_pick_fragments(pep_seq):
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
     os.chdir(frag_picker_dir)
 
-    os.system(MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+    os.system(pfpd.MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
     if sec_struct:
         os.rename('xxxxx.psipred_ss2', 'xxxxx.psipred_ss2_orig')
         with open('xxxxx.psipred_ss2', 'w') as psi_new:
@@ -507,8 +366,8 @@ def make_pick_fragments(pep_seq):
     else:
         fragments_flags_and_cfg()
     print("**************Picking fragments**************")
-    os.system(FRAG_PICKER)  # Run fragment picker
-    os.system(COPY.format(FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
+    os.system(pfpd.FRAG_PICKER)  # Run fragment picker
+    os.system(pfpd.COPY.format(pfpd.FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
     os.chdir(root)
 
 
@@ -588,7 +447,7 @@ def review_frag(outfile, sequence):
         residues = ''
         cur_line = frag.readline()
         for i in range(pep_length):
-            if cur_line[:4] == 'ATOM' and cur_line[17:20] == THREE_TO_ONE_AA[sequence[i]]:
+            if cur_line[:4] == 'ATOM' and cur_line[17:20] == pfpd.THREE_TO_ONE_AA[sequence[i]]:
                 if cur_line[54:60].strip() == 0.00:
                     print("Zero occupancy atoms!")
                     return bad_frag(outfile)
@@ -632,28 +491,6 @@ def renumber_frag(fragment):
 def process_frags(pep_sequence, fragments, add_frags_num=0):
     """Process and extract frags, filter bad fragments"""
     pdb_resfiles_dict = dict()  # pdbs and their resfiles
-    # # in case there are fragments
-    # if os.path.isdir(fragments_dir) and os.path.isdir(resfiles_dir):
-    #     if count_pdbs(fragments_dir) == 50 and len([resf for resf in os.listdir(resfiles_dir) if
-    #                                                os.path.isfile(os.path.join(resfiles_dir, resf))]):
-    #         for frag in os.listdir(fragments_dir):
-    #             if os.path.splitext(os.path.basename(frag))[1] == '.pdb':
-    #                 pdb_resfiles_dict[os.path.basename(frag)] = 'resfile_'+os.path.splitext(os.path.basename(frag))[0]
-    #         return pdb_resfiles_dict
-    #     else:
-    #         os.removedirs(fragments_dir)
-    #         os.removedirs(resfiles_dir)
-
-    # # create directory for top 50 frags
-    # if not os.path.exists(fragments_dir):
-    #     os.makedirs(fragments_dir)
-    #
-    # # create directory for storing resfiles
-    # if not os.path.exists(resfiles_dir):
-    #     os.makedirs(resfiles_dir)
-    #
-    # pdb_resfiles_dict = dict()  # pdbs and their resfiles
-    # os.chdir(fragments_dir)
 
     # extract and append parameters to different lists
     pdbs = []
@@ -686,10 +523,10 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
         outfile = fragment_name + '.pdb'
         if chain == '_':
             chain = 'A'
-        os.system(CLEAN_PDB.format(pdb, chain))  # get clean pdb and it's fasta
+        os.system(pfpd.CLEAN_PDB.format(pdb, chain))  # get clean pdb and it's fasta
 
-        pdb_full = PDB.format(pdb.upper(), chain)  # names of clean_pdb output files
-        fasta_name = FASTA.format(pdb.upper(), chain)
+        pdb_full = pfpd.PDB.format(pdb.upper(), chain)  # names of clean_pdb output files
+        fasta_name = pfpd.FASTA.format(pdb.upper(), chain)
 
         if os.path.exists(pdb_full):
             print("Extracting fragment")
@@ -715,7 +552,7 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, fasta_start, sequence, fragment_name)
                 pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
-                if frags_count >= NUM_OF_FRAGS + add_frags_num:
+                if frags_count >= pfpd.NUM_OF_FRAGS + add_frags_num:
                     print("**************Finished with fragments**************")
                     break
             else:
@@ -787,8 +624,8 @@ def check_designed_frags():
         if os.path.splitext(os.path.basename(frag))[1] == '.pdb':
             review_frag(frag, peptide_seq)
     frags_count = count_pdbs(fixbb_dir)
-    if frags_count < NUM_OF_FRAGS:
-        return NUM_OF_FRAGS - frags_count
+    if frags_count < pfpd.NUM_OF_FRAGS:
+        return pfpd.NUM_OF_FRAGS - frags_count
     else:
         return False
 
@@ -802,7 +639,7 @@ def extract_more_frags(n_frags, defective_from_fixbb):
         bad_frags_shift = count_pdbs(bad_frags_dir) + defective_from_fixbb
     else:
         bad_frags_shift = defective_from_fixbb
-    add_frags = add_frags[NUM_OF_FRAGS + bad_frags_shift:]
+    add_frags = add_frags[pfpd.NUM_OF_FRAGS + bad_frags_shift:]
     return process_frags(peptide_seq, add_frags, n_frags)
 
 
@@ -815,19 +652,19 @@ def run_fixbb(pdb_and_resfiles):
     if talaris:
         if jd3:
             create_xml(pdb_and_resfiles)
-            os.system(FIXBB_JD3_TALARIS.format('design.xml'))
+            os.system(pfpd.FIXBB_JD3_TALARIS.format('design.xml'))
         else:
             for pdb, resfile in pdb_and_resfiles.items():
-                os.system(FIXBB_TALARIS.format(frag=os.path.join(fragments_dir, pdb),
-                                               resfile=os.path.join(resfiles_dir, resfile)))
+                os.system(pfpd.FIXBB_TALARIS.format(frag=os.path.join(fragments_dir, pdb),
+                                                    resfile=os.path.join(resfiles_dir, resfile)))
     else:
         if jd3:
             create_xml(pdb_and_resfiles)
-            os.system(FIXBB_JD3.format('design.xml'))
+            os.system(pfpd.FIXBB_JD3.format('design.xml'))
         else:
             for pdb, resfile in pdb_and_resfiles.items():
-                os.system(FIXBB.format(frag=os.path.join(fragments_dir, pdb),
-                                       resfile=os.path.join(resfiles_dir, resfile)))
+                os.system(pfpd.FIXBB.format(frag=os.path.join(fragments_dir, pdb),
+                                            resfile=os.path.join(resfiles_dir, resfile)))
 
     print("Done!")
     # If we need to extract additional fragments for more then once, we need to add bad fragments
@@ -878,7 +715,7 @@ def process_for_piper(receptor):
             rename_chain(os.path.join(fixbb_dir, frag), 'B')
             frags_list.append(os.path.basename(frag))
     with open(os.path.join(piper_dir, 'runs_list'), 'w') as runs_list:  # Create list 1 - 50
-        for i in range(1, NUM_OF_FRAGS + 1):
+        for i in range(1, pfpd.NUM_OF_FRAGS + 1):
             runs_list.write("{:02}\n".format(i))
 
     # Create symlinks for piper run
@@ -893,20 +730,20 @@ def process_for_piper(receptor):
     # process ligands for PIPER
     os.chdir(ligands_dir)
     for lig in os.listdir(ligands_dir):
-        os.system(PDBPREP.format(lig))
-        os.system(PDBNMD.format(lig))
+        os.system(pfpd.PDBPREP.format(lig))
+        os.system(pfpd.PDBNMD.format(lig))
 
     # prepare receptor for piper
-    os.system(COPY.format(receptor, piper_dir))
+    os.system(pfpd.COPY.format(receptor, piper_dir))
     os.chdir(piper_dir)
 
-    os.system(CLEAN_PDB.format(receptor, 'nochain'))  # Clean the receptor
+    os.system(pfpd.CLEAN_PDB.format(receptor, 'nochain'))  # Clean the receptor
     rename_chain(os.path.basename(receptor)[:-4] + '_nochain.pdb', 'A')
     name_for_piper = os.path.basename(receptor).lower()
     os.rename(os.path.splitext(os.path.basename(receptor))[0] + '_nochain.pdb',
               name_for_piper)
-    os.system(PDBPREP.format(name_for_piper))
-    os.system(PDBNMD.format(name_for_piper))
+    os.system(pfpd.PDBPREP.format(name_for_piper))
+    os.system(pfpd.PDBNMD.format(name_for_piper))
     os.chdir(root)
 
 
@@ -917,7 +754,7 @@ def build_peptide(pep):
         os.makedirs(prepack_dir)
     os.chdir(prepack_dir)
     # Build extended peptide
-    os.system(BUILD_PEPTIDE.format(pep))
+    os.system(pfpd.BUILD_PEPTIDE.format(pep))
 
     # Change chain ID to 'B'
     rename_chain('peptide.pdb', 'B')
@@ -949,9 +786,9 @@ def prepack_receptor(processed_receptor):
         print("Prepacked receptor already exists")
         return
     if talaris:
-        os.system(PREPACK_TALARIS)
+        os.system(pfpd.PREPACK_TALARIS)
     else:
-        os.system(PREPACK)
+        os.system(pfpd.PREPACK)
     with open(ppk_receptor, 'w') as renamed_rec:
         with open('start_0001.pdb', 'r') as start:
             for line in start:
@@ -988,14 +825,29 @@ def arg_parser():
 def run_protocol(peptide_sequence, receptor):
 
     if native:
-        check_native_structure()
+        native_path = os.path.abspath(native)
+        check_native_structure(native_path)
+        silent_file = 'decoys.silent'
+    else:
+        native_path = None
+        silent_file = 'decoys_rescored.silent'
 
-    if full_p:
+    if sec_struct:
+        with open(sec_struct, 'r') as ss_h:
+            ss_pred = ss_h.readline().strip()
+        for char in ss_pred:
+            if char not in pfpd.PSIPRED_OUTPUT:
+                print('Wrong secondary structure file format. A valid file should contain only 1 line with C, H or E '
+                      'letters')
+                sys.exit()
+        make_pick_fragments(peptide_sequence, ss_pred)
+
+    elif full_p:
         create_psipred_from_full_protein(os.path.abspath(full_p))
     else:
         make_pick_fragments(peptide_sequence)
 
-    all_frags = create_params_file(FRAGS_FILE.format(str(pep_length)))
+    all_frags = create_params_file(pfpd.FRAGS_FILE.format(str(pep_length)))
 
     # extract fragments, create resfiles and return a dictionary of fragments names and matching resfiles names
     pdb_and_resfiles = process_frags(peptide_seq, all_frags)
@@ -1013,7 +865,7 @@ def run_protocol(peptide_sequence, receptor):
     # run piper docking, extract top 250 models from each run, run FlexPepDock, clustering,
     # rescoring and get top 10 models
 
-    run_piper_fpd_jobs(os.path.basename(receptor).lower())
+    run_piper_fpd_jobs(os.path.basename(receptor).lower(), native_path, silent_file)
 
 
 if __name__ == "__main__":
@@ -1043,29 +895,13 @@ if __name__ == "__main__":
     fragments_dir = os.path.join(root, 'top_50_frags')
     resfiles_dir = os.path.join(root, 'resfiles')
     fixbb_dir = os.path.join(fragments_dir, 'fixbb')
+    bad_frags_dir = 'bad_fragments'
     piper_dir = os.path.join(root, 'piper')
     ligands_dir = os.path.join(piper_dir, 'ligands')
     prepack_dir = os.path.join(root, 'prepacking')
     refinement_dir = os.path.join(root, 'refinement')
     clustering_dir = os.path.join(refinement_dir, 'clustering')
-    bad_frags_dir = 'bad_fragments'
 
     final_dir = 'FINAL_RESULTS'  # top 10 models and score file
-
-    # TODO: !!!!!!!!!!!!!!!!! I need to pull this up from the main
-    if native:
-        native_path = os.path.abspath(native)
-        silent_file = 'decoys.silent'
-    else:
-        silent_file = 'decoys_rescored.silent'
-
-    if sec_struct:
-        with open(sec_struct, 'r') as ss_h:
-            ss_pred = ss_h.readline().strip()
-        for char in ss_pred:
-            if char not in PSIPRED_OUTPUT:
-                print('Wrong secondary structure file format. A valid file should contain only 1 line with C, H or E '
-                      'letters')
-                sys.exit()
 
     run_protocol(peptide_seq, receptor_path)
