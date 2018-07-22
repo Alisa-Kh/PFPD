@@ -14,49 +14,56 @@ import pfpd_const as pfpd
 SBATCH_PIPER = '#!/bin/sh\n' \
                '#SBATCH --ntasks=1\n' \
                '#SBATCH --time=20:00:00\n' \
-               '#SBATCH --get-user-env\n'\
+               '#SBATCH --get-user-env\n' \
+               '#SBATCH --mem-per-cpu=1600m\n'\
                + pfpd.PIPER_DOCKING
 SBATCH_EXTRACT_TOP_DECOYS = "#!/bin/sh\n" \
                             "#SBATCH --nodes 1\n" \
                             "#SBATCH --ntasks=1\n" \
                             "#SBATCH --time=10:00:00\n" \
                             "#SBATCH --get-user-env\n" \
+                            "#SBATCH --mem-per-cpu=1600m\n" \
                             + pfpd.EXTRACT_PIPER_MODELS
 SBATCH_PREP_FPD_INPUT = "#!/bin/sh\n" \
                         "#SBATCH --ntasks=1\n" \
                         "#SBATCH --time=10:00:00\n" \
                         "#SBATCH --get-user-env\n" \
+                        "#SBATCH --mem-per-cpu=1600m\n" \
                         + pfpd.PREPARE_FPD_IN
 SBATCH_FPD = '#!/bin/bash\n' \
              '#SBATCH --ntasks=300\n' \
              '#SBATCH --time=50:00:00\n' \
              '#SBATCH --get-user-env\n' \
+             '#SBATCH --mem-per-cpu=1600m\n' \
              '{fpd_version}'
 SBATCH_EXTRACT_TOP_MODEL = '#!/bin/bash\n' \
                            '#SBATCH --ntasks=1\n' \
                            '#SBATCH --time=1:00:00\n' \
                            '#SBATCH --get-user-env\n' \
+                           '#SBATCH --mem-per-cpu=1600m\n' \
                            + pfpd.EXTRACT_MODEL
 SBATCH_RESCORING = '#!/bin/bash\n' \
-                   '#SBATCH --ntasks=300\n' \
+                   '#SBATCH --ntasks=30\n' \
                    '#SBATCH --time=30:00:00\n' \
                    '#SBATCH --get-user-env\n' \
+                   '#SBATCH --mem-per-cpu=1600m\n' \
                    + pfpd.RESCORING
 SBATCH_CLUSTERING = '#!/bin/bash\n' \
                     '#SBATCH --ntasks=1\n' \
                     '#SBATCH --time=1:00:00\n' \
                     '#SBATCH --get-user-env\n' \
+                    '#SBATCH --mem-per-cpu=1600m\n' \
                     + pfpd.CLUSTERING
 
 # 'dependency' in these commands will be changed to specific 'dependency=aftercorr$job_num' before run
 
 RUN_PIPER = ['sbatch', '--mem=1500m', 'run_piper']
-RUN_EXTRACT_DECOYS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_extract_decoys']
-RUN_PREP_FPD_INPUTS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_prepare_fpd_inputs']
-RUN_REFINEMENT = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_refinement']
-RUN_EXTRACT_TOP_MODEL = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'extract_model']
-RUN_RESCORING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'rescoring']
-RUN_CLUSTERING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_clustering']
+RUN_EXTRACT_DECOYS = ['sbatch', '--mem-per-cpu=1500m', 'run_extract_decoys']
+RUN_PREP_FPD_INPUTS = ['sbatch', '--mem-per-cpu=1500m', 'run_prepare_fpd_inputs']
+RUN_REFINEMENT = ['sbatch', '--mem-per-cpu=1600m', 'run_refinement']
+RUN_EXTRACT_TOP_MODEL = ['sbatch', '--mem-per-cpu=1600m', 'extract_model']
+RUN_RESCORING = ['sbatch', '--mem-per-cpu=1600m', 'rescoring']
+RUN_CLUSTERING = ['sbatch', '--mem-per-cpu=1600m', 'run_clustering']
 
 #############################################################################################
 """Attention! Next 3 functions send all the jobs to cluster. They are also SLURM dependent"""
@@ -67,11 +74,12 @@ def create_batch(receptor, run, **kwargs):
     """Create batch scripts for jobs that will be sent to cluster, such as
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
     rec_name = os.path.join(piper_dir, receptor.lower() + '_nmin.pdb')
-    lig_name = 'lig.' + "{:04}".format(kwargs['lig_n']) + '_nmin.pdb'
     if run == 'piper':
+        lig_name = 'lig.' + "{:04}".format(kwargs['lig_n']) + '_nmin.pdb'
         with open('run_piper', 'w') as piper:
             piper.write(SBATCH_PIPER.format(decoys=pfpd.N_ROTS, r=rec_name, l=lig_name))
     elif run == 'decoys':
+        lig_name = 'lig.' + "{:04}".format(kwargs['lig_n']) + '_nmin.pdb'
         with open('run_extract_decoys', 'w') as extract_decoys:
             extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % (pfpd.PIPER_MODELS_EXTRACTED, lig_name))
     elif run == 'prepare_inputs':
@@ -117,20 +125,21 @@ def send_piper_jobs(processed_receptor):
         # run PIPER docking, extract top 250 decoys and prepare input for refinement
         run_piper = str(subprocess.check_output(RUN_PIPER))
         piper_id = ''.join(d for d in run_piper if d.isdigit())
-        RUN_EXTRACT_DECOYS[1] = '--dependency=aftercorr:%s' % piper_id
+        RUN_EXTRACT_DECOYS.insert(1, '--dependency=aftercorr:%s' % piper_id)
         run_extract_decoys = str(subprocess.check_output(RUN_EXTRACT_DECOYS))
         extract_decoys_id = ''.join(d for d in run_extract_decoys if d.isdigit())
-        RUN_PREP_FPD_INPUTS[1] = '--dependency=aftercorr:%s' % extract_decoys_id
+        RUN_PREP_FPD_INPUTS.insert(1, '--dependency=aftercorr:%s' % extract_decoys_id)
         run_prepare_fpd_inputs = str(subprocess.check_output(RUN_PREP_FPD_INPUTS))
         jobs_list.append(''.join(d for d in run_prepare_fpd_inputs if d.isdigit()))
         os.chdir(piper_dir)
 
-    return jobs_list, receptor_name
+    return jobs_list
 
 
 def run_piper_fpd_jobs(processed_receptor, native_path, silent_f):
     """Run PIPER, FPD and clustering"""
-    jobs_list, receptor_name = send_piper_jobs(processed_receptor)
+    receptor_name = os.path.splitext(os.path.basename(receptor_path))[0]
+    jobs_list = send_piper_jobs(processed_receptor)
     # FPD refinement
     if not os.path.exists(refinement_dir):
         os.makedirs(refinement_dir)
@@ -140,7 +149,7 @@ def run_piper_fpd_jobs(processed_receptor, native_path, silent_f):
     all_prep_jobs = ''
     for job_id in jobs_list:
         all_prep_jobs += ':' + job_id  # there are multiple jobs and a semicolon needs to be written before each of them
-    RUN_REFINEMENT[1] = '--dependency=aftercorr%s' % all_prep_jobs
+    RUN_REFINEMENT.insert(1, '--dependency=aftercorr%s' % all_prep_jobs)
     run_refinement = str(subprocess.check_output(RUN_REFINEMENT))
 
     refinement_id = ''.join(d for d in run_refinement if d.isdigit())
@@ -157,20 +166,20 @@ def run_piper_fpd_jobs(processed_receptor, native_path, silent_f):
                 rescore.write(SBATCH_RESCORING.format(sc_func='talaris14'))
             else:
                 rescore.write(SBATCH_RESCORING.format(sc_func='ref2015'))
-        RUN_EXTRACT_TOP_MODEL[1] = '--dependency=aftercorr:%s' % refinement_id
+        RUN_EXTRACT_TOP_MODEL.insert(1, '--dependency=aftercorr:%s' % refinement_id)
         extract_model = str(subprocess.check_output(RUN_EXTRACT_TOP_MODEL))
 
         extract_model_id = ''.join(d for d in extract_model if d.isdigit())
-        RUN_RESCORING[1] = '--dependency=aftercorr:%s' % extract_model_id
+        RUN_RESCORING.insert(1, '--dependency=aftercorr:%s' % extract_model_id)
         rescoring = str(subprocess.check_output(RUN_RESCORING))
 
         rescoring_id = ''.join(d for d in rescoring if d.isdigit())
         os.chdir(clustering_dir)
-        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % rescoring_id
+        RUN_CLUSTERING.insert(1, '--dependency=aftercorr:%s' % rescoring_id)
         subprocess.call(RUN_CLUSTERING)
     else:
         os.chdir(clustering_dir)
-        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % refinement_id
+        RUN_CLUSTERING.insert(1, '--dependency=aftercorr:%s' % refinement_id)
         subprocess.call(RUN_CLUSTERING)
     os.chdir(root)
 
@@ -181,7 +190,7 @@ def run_piper_fpd_jobs(processed_receptor, native_path, silent_f):
 ######################################################################
 
 
-def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.checkpoint'):
+def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.checkpoint', n_frags=100):
     # Create psi_L1.cfg file:
     with open('psi_L1.cfg', 'w') as scores:
         scores.write('#score\tname\tpriority\twght\tmin_allowed\textras\n'
@@ -195,7 +204,7 @@ def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.check
                          '-frags:describe_fragments\tfrags.fsc\n'
                          '-frags:frag_sizes\t{len}\n'
                          '-frags:n_candidates\t2000\n'
-                         '-frags:n_frags\t100\n'
+                         '-frags:n_frags\t{n_frags}\n'
                          '-out:file:frag_prefix\tfrags\n'
                          '-frags:ss_pred\t{psi} psipred\n'
                          '-frags:scoring:config\tpsi_L1.cfg\n'
@@ -203,7 +212,31 @@ def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.check
                          '-mute\tcore.util.prof\n'
                          '-mute\tcore.conformation\n'
                          '-mute\tcore.chemical\n'
-                         '-mute\tprotocols.jumping'.format(check=checkpoint, len=pep_length, psi=psipred))
+                         '-mute\tprotocols.jumping'.format(check=checkpoint, len=pep_length,
+                                                           psi=psipred, n_frags=n_frags))
+# def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.checkpoint'):
+#     # Create psi_L1.cfg file:
+#     with open('psi_L1.cfg', 'w') as scores:
+#         scores.write('#score\tname\tpriority\twght\tmin_allowed\textras\n'
+#                      'SecondarySimilarity\t350\t2.0\t-\tpsipred\n'
+#                      'ProfileScoreL1\t200\t1.0\t-\n')
+#     # Write flags files
+#     with open('flags', 'w') as flags_file:
+#         flags_file.write('-in:file:vall\t' + pfpd.ROSETTA_TOOLS +
+#                          'fragment_tools/vall.jul19.2011.gz\n'
+#                          '-in:file:checkpoint\t{check}\n'
+#                          '-frags:describe_fragments\tfrags.fsc\n'
+#                          '-frags:frag_sizes\t{len}\n'
+#                          '-frags:n_candidates\t2000\n'
+#                          '-frags:n_frags\t100\n'
+#                          '-out:file:frag_prefix\tfrags\n'
+#                          '-frags:ss_pred\t{psi} psipred\n'
+#                          '-frags:scoring:config\tpsi_L1.cfg\n'
+#                          '-frags:bounded_protocol\ttrue\n'
+#                          '-mute\tcore.util.prof\n'
+#                          '-mute\tcore.conformation\n'
+#                          '-mute\tcore.chemical\n'
+#                          '-mute\tprotocols.jumping'.format(check=checkpoint, len=pep_length, psi=psipred))
 
 
 def prepack_flags_file(receptor):
@@ -263,11 +296,11 @@ def check_native_structure(native_path):
     """ Check the length of native struct with the length of the receptor + pep"""
     with open(native_path, 'r') as n:
         native_calphas = 0
-        native_sequence = ''
+        # native_sequence = ''
         for line in n:
             if line[13:15] == 'CA':
                 native_calphas += 1
-#               native_sequence += line[17:20]  # TODO: you are not comparing the sequence !!!
+                #   native_sequence += line[17:20]  # TODO: you are not comparing the sequence !!!
     with open(receptor_path, 'r') as rec:
         rec_calphas = 0
         for line in rec:
@@ -279,6 +312,28 @@ def check_native_structure(native_path):
         sys.exit()
     else:
         return
+# def check_native_structure(native_path):
+#     """ Check the length of native struct with the length of the receptor + pep"""
+#     with open(native_path, 'r') as n:
+#         native_calphas = 0
+#         native_sequence = ''
+#
+#         for line in n:
+#             if line[13:15] == 'CA':
+#                 native_calphas += 1
+#                 # resi = list(pfpd.THREE_TO_ONE_AA.keys())[list(pfpd.THREE_TO_ONE_AA.values()).index(line[17:20])]
+# #               native_sequence += line[17:20]  # TODO: you are not comparing the sequence !!!
+#     with open(receptor_path, 'r') as rec:
+#         rec_calphas = 0
+#         for line in rec:
+#             if line[13:15] == 'CA':
+#                 rec_calphas += 1
+#         complex_calphas = rec_calphas + pep_length
+#     if native_calphas != complex_calphas:
+#         print(pfpd.BAD_NATIVE)
+#         sys.exit()
+#     else:
+#         return
 
 
 def cut_file(col_num):
@@ -328,6 +383,76 @@ def create_psipred_from_full_protein(full_pep_fasta):
     make_pick_fragments(full_seq)
 
 
+def create_custom_pp(ss_pred, psip_name='xxxxx.psipred_custom', ori_psip='xxxxx.psipred_ss2'):
+    with open(psip_name, 'w') as psi_new:
+        with open(ori_psip, 'r') as psipred:
+            psi_new.write(psipred.readline())  # write a header to a new custom psipred
+            psipred_lines = psipred.readlines()
+            for i in range(len(psipred_lines)):
+                new_line = psipred_lines[i].split()
+                new_line[2] = ss_pred[i]
+                if ss_pred[i] == 'C':
+                    new_line[3] = '0.700'
+                    new_line[4] = '0.290'
+                    new_line[5] = '0.010'
+                elif ss_pred[i] == 'H':
+                    new_line[3] = '0.290'
+                    new_line[4] = '0.700'
+                    new_line[5] = '0.010'
+                elif ss_pred[i] == 'E':
+                    new_line[3] = '0.290'
+                    new_line[4] = '0.010'
+                    new_line[5] = '0.700'
+                psi_new.write('\t'.join(new_line) + '\n')
+    return psip_name
+
+
+def create_windows(struct):
+    wins = []
+    if struct == 'b':
+        sign = 'E'
+        window = 'E' * pfpd.WINDOWS_LENGTH
+    else:  # for alpha-helix
+        sign = 'H'
+        window = 'H' * pfpd.WINDOWS_LENGTH
+    if pfpd.WINDOWS_LENGTH < pep_length:
+        for start in range(0, pep_length - pfpd.WINDOWS_LENGTH + 1, 2):
+            remainder = pep_length - start - pfpd.WINDOWS_LENGTH
+            if remainder >= 2:
+                custom_pp = 'C' * start + window + 'C' * remainder
+            else:
+                custom_pp = 'C' * start + sign * (pep_length - start)
+            wins.append(custom_pp)
+    else:
+        wins.append(sign * pep_length)
+    return wins
+
+
+def add_frag_to_list():
+    with open('frags.1.{}mers'.format(pep_length), 'a') as one_frag:
+        with open(pfpd.FRAGS_FILE.format(pep_length), 'r') as frag_file:
+            all_frags = frag_file.readlines()
+        for frag_line in all_frags[2:]:
+            one_frag.write(frag_line)
+        os.system('mv frags.1.{}mers '.format(pep_length) + pfpd.FRAGS_FILE.format(pep_length))
+
+
+def add_alpha_beta_frags(psip_file, check_file):
+    """For 12 aa peptide create 6aas beta and alpha windows with 2 aas leaps.
+    For 6aa peptides or shorter - full helices or beta-strands. Call frag_picker with custom psipred for all the
+    windows. Max number of additional fragments will be 8, they will replace the last 8 fragments. Minimal number - 2"""
+    beta_wins = create_windows('b')
+    alpha_wins = create_windows('a')
+    for win in beta_wins:
+        fragments_flags_and_cfg(create_custom_pp(win, 'b_psipred', psip_file), check_file, 1)
+        os.system(pfpd.FRAG_PICKER)
+        add_frag_to_list()
+    for win in alpha_wins:
+        fragments_flags_and_cfg(create_custom_pp(win, 'a_psipred', psip_file), check_file, 1)
+        os.system(pfpd.FRAG_PICKER)
+        add_frag_to_list()
+
+
 def make_pick_fragments(pep_seq, ss_pred=None):
     """Run fragment picker"""
     if not os.path.exists(frag_picker_dir):
@@ -336,39 +461,113 @@ def make_pick_fragments(pep_seq, ss_pred=None):
     with open(os.path.join(frag_picker_dir, 'xxxxx.fasta'), 'w') as fasta_file:
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
     os.chdir(frag_picker_dir)
+    print('************Running BLAST/PsiPred***************')
 
     os.system(pfpd.MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+
     if sec_struct:
-        os.rename('xxxxx.psipred_ss2', 'xxxxx.psipred_ss2_orig')
-        with open('xxxxx.psipred_ss2', 'w') as psi_new:
-            with open('xxxxx.psipred_ss2_orig', 'r') as psipred:
-                psipred_lines = psipred.readlines()
-                for i, line in enumerate(psipred_lines):
-                    new_line = line.split()
-                    new_line[2] = ss_pred[i]
-                    if ss_pred[i] == 'C':
-                        new_line[3] = '0.700'
-                        new_line[4] = '0.290'
-                        new_line[5] = '0.010'
-                    elif ss_pred[i] == 'H':
-                        new_line[3] = '0.290'
-                        new_line[4] = '0.700'
-                        new_line[5] = '0.010'
-                    elif ss_pred[i] == 'E':
-                        new_line[3] = '0.290'
-                        new_line[4] = '0.010'
-                        new_line[5] = '0.700'
-                    psi_new.write('\t'.join(new_line) + '\n')
+        fragments_flags_and_cfg(create_custom_pp(ss_pred))  # Create custom psipred file and flag file with its name
+        psi_p_file, checkpoint_file = create_custom_pp(ss_pred), 'xxxxx.checkpoint'
     elif full_p:
         psi_p_file = cut_file(1)  # cut psipred_ss2
         checkpoint_file = cut_file(0)  # cut checkpoint
         fragments_flags_and_cfg(psi_p_file, checkpoint_file)  # Write flags files
     else:
         fragments_flags_and_cfg()
+        psi_p_file, checkpoint_file = 'xxxxx.psipred_ss2', 'xxxxx.checkpoint'
     print("**************Picking fragments**************")
     os.system(pfpd.FRAG_PICKER)  # Run fragment picker
+    add_alpha_beta_frags(psi_p_file, checkpoint_file)
     os.system(pfpd.COPY.format(pfpd.FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
     os.chdir(root)
+# def cut_file(col_num):
+#     if col_num == 1:
+#         file_name = 'psipred_ss2_pep'
+#         original_file = 'xxxxx.psipred_ss2'
+#     else:
+#         file_name = 'checkpoint'
+#         original_file = 'xxxxx.checkpoint'
+#     with open(original_file, 'r') as f:
+#         f_lines = f.readlines()
+#         i = 0
+#         for line_num in range(1, len(f_lines) + 1):
+#             if f_lines[line_num].split()[col_num] == peptide_seq[i]:
+#                 i += 1
+#                 if i == len(peptide_seq):
+#                     with open(file_name, 'w') as cut_f:
+#                         if file_name == 'psipred_ss2_pep':
+#                             cut_f.write(f_lines[0])
+#                             for j in range(pep_length - 1, -1, -1):
+#                                 new_line = f_lines[line_num - j].split()
+#                                 new_line[0] = str(i - j)
+#                                 cut_f.write('\t'.join(new_line) + '\n')
+#                         else:
+#                             cut_f.write(str(pep_length) + '\n')
+#                             for j in range(pep_length - 1, -1, -1):
+#                                 cut_f.write(f_lines[line_num - j])
+#                     break
+#             else:
+#                 i = 0
+#     return file_name
+#
+#
+# def create_psipred_from_full_protein(full_pep_fasta):
+#     """Reads fasta and calls make_pick fragments"""
+#     if not os.path.exists(frag_picker_dir):
+#         os.makedirs(frag_picker_dir)
+#     os.chdir(frag_picker_dir)
+#     with open(full_pep_fasta) as fasta:
+#         full_seq = fasta.readlines()
+#         if full_seq[0][0] == '>':
+#             full_seq = full_seq[1:]
+#             full_seq = "".join(line.strip() for line in full_seq)
+#         else:
+#             full_seq = "".join(line.strip() for line in full_seq)
+#
+#     make_pick_fragments(full_seq)
+#
+#
+# def make_pick_fragments(pep_seq, ss_pred=None):
+#     """Run fragment picker"""
+#     if not os.path.exists(frag_picker_dir):
+#         os.makedirs(frag_picker_dir)
+#     # Create fasta file:
+#     with open(os.path.join(frag_picker_dir, 'xxxxx.fasta'), 'w') as fasta_file:
+#         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
+#     os.chdir(frag_picker_dir)
+#
+#     os.system(pfpd.MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+#     if sec_struct:
+#         os.rename('xxxxx.psipred_ss2', 'xxxxx.psipred_ss2_orig')
+#         with open('xxxxx.psipred_ss2', 'w') as psi_new:
+#             with open('xxxxx.psipred_ss2_orig', 'r') as psipred:
+#                 psipred_lines = psipred.readlines()
+#                 for i, line in enumerate(psipred_lines):
+#                     new_line = line.split()
+#                     new_line[2] = ss_pred[i]
+#                     if ss_pred[i] == 'C':
+#                         new_line[3] = '0.700'
+#                         new_line[4] = '0.290'
+#                         new_line[5] = '0.010'
+#                     elif ss_pred[i] == 'H':
+#                         new_line[3] = '0.290'
+#                         new_line[4] = '0.700'
+#                         new_line[5] = '0.010'
+#                     elif ss_pred[i] == 'E':
+#                         new_line[3] = '0.290'
+#                         new_line[4] = '0.010'
+#                         new_line[5] = '0.700'
+#                     psi_new.write('\t'.join(new_line) + '\n')
+#     elif full_p:
+#         psi_p_file = cut_file(1)  # cut psipred_ss2
+#         checkpoint_file = cut_file(0)  # cut checkpoint
+#         fragments_flags_and_cfg(psi_p_file, checkpoint_file)  # Write flags files
+#     else:
+#         fragments_flags_and_cfg()
+#     print("**************Picking fragments**************")
+#     os.system(pfpd.FRAG_PICKER)  # Run fragment picker
+#     os.system(pfpd.COPY.format(pfpd.FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
+#     os.chdir(root)
 
 
 def create_params_file(frags):

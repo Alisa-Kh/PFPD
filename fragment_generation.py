@@ -6,13 +6,13 @@ import os
 import pfpd_const as pfpd
 
 
-######################################################################
+###########################################################################
 """It is not recommended to change the flags, unless you know what you 
- are doing. If you do, flags can be changed in the next 3 functions"""
-######################################################################
+are doing. If you do, you may change the flags in the following function"""
+###########################################################################
 
 
-def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.checkpoint'):
+def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.checkpoint', n_frags=100):
     # Create psi_L1.cfg file:
     with open('psi_L1.cfg', 'w') as scores:
         scores.write('#score\tname\tpriority\twght\tmin_allowed\textras\n'
@@ -26,7 +26,7 @@ def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.check
                          '-frags:describe_fragments\tfrags.fsc\n'
                          '-frags:frag_sizes\t{len}\n'
                          '-frags:n_candidates\t2000\n'
-                         '-frags:n_frags\t100\n'
+                         '-frags:n_frags\t{n_frags}\n'
                          '-out:file:frag_prefix\tfrags\n'
                          '-frags:ss_pred\t{psi} psipred\n'
                          '-frags:scoring:config\tpsi_L1.cfg\n'
@@ -34,7 +34,12 @@ def fragments_flags_and_cfg(psipred='xxxxx.psipred_ss2', checkpoint='xxxxx.check
                          '-mute\tcore.util.prof\n'
                          '-mute\tcore.conformation\n'
                          '-mute\tcore.chemical\n'
-                         '-mute\tprotocols.jumping'.format(check=checkpoint, len=pep_length, psi=psipred))
+                         '-mute\tprotocols.jumping'.format(check=checkpoint, len=pep_length,
+                                                           psi=psipred, n_frags=n_frags))
+
+####################################################
+"""ATTENTION!!!!! Do not change the code below!!!"""
+####################################################
 
 
 def cut_file(col_num):
@@ -84,6 +89,76 @@ def create_psipred_from_full_protein(full_pep_fasta):
     make_pick_fragments(full_seq)
 
 
+def create_custom_pp(ss_pred, psip_name='xxxxx.psipred_custom', ori_psip='xxxxx.psipred_ss2'):
+    with open(psip_name, 'w') as psi_new:
+        with open(ori_psip, 'r') as psipred:
+            psi_new.write(psipred.readline())  # write a header to a new custom psipred
+            psipred_lines = psipred.readlines()
+            for i in range(len(psipred_lines)):
+                new_line = psipred_lines[i].split()
+                new_line[2] = ss_pred[i]
+                if ss_pred[i] == 'C':
+                    new_line[3] = '0.700'
+                    new_line[4] = '0.290'
+                    new_line[5] = '0.010'
+                elif ss_pred[i] == 'H':
+                    new_line[3] = '0.290'
+                    new_line[4] = '0.700'
+                    new_line[5] = '0.010'
+                elif ss_pred[i] == 'E':
+                    new_line[3] = '0.290'
+                    new_line[4] = '0.010'
+                    new_line[5] = '0.700'
+                psi_new.write('\t'.join(new_line) + '\n')
+    return psip_name
+
+
+def create_windows(struct):
+    wins = []
+    if struct == 'b':
+        sign = 'E'
+        window = 'E' * pfpd.WINDOWS_LENGTH
+    else:  # for alpha-helix
+        sign = 'H'
+        window = 'H' * pfpd.WINDOWS_LENGTH
+    if pfpd.WINDOWS_LENGTH < pep_length:
+        for start in range(0, pep_length - pfpd.WINDOWS_LENGTH + 1, 2):
+            remainder = pep_length - start - pfpd.WINDOWS_LENGTH
+            if remainder >= 2:
+                custom_pp = 'C' * start + window + 'C' * remainder
+            else:
+                custom_pp = 'C' * start + 'E' * (pep_length - start)
+            wins.append(custom_pp)
+    else:
+        wins.append(sign * pep_length)
+    return wins
+
+
+def add_frag_to_list():
+    with open('frags.1.{}mers'.format(pep_length), 'a') as one_frag:
+        with open(pfpd.FRAGS_FILE.format(pep_length), 'r') as frag_file:
+            all_frags = frag_file.readlines()
+        for frag_line in all_frags[2:]:
+            one_frag.write(frag_line)
+        os.system('mv frags.1.{}mers '.format(pep_length) + pfpd.FRAGS_FILE.format(pep_length))
+
+
+def add_alpha_beta_frags(psip_file, check_file):
+    """For 12 aa peptide create 6aas beta and alpha windows with 2 aas leaps.
+    For 6aa peptides or shorter - full helices or beta-strands. Call frag_picker with custom psipred for all the
+    windows. Max number of additional fragments will be 8, they will replace the last 8 fragments. Minimal number - 2"""
+    beta_wins = create_windows('b')
+    alpha_wins = create_windows('a')
+    for win in beta_wins:
+        fragments_flags_and_cfg(create_custom_pp(win, 'b_psipred', psip_file), check_file, 1)
+        os.system(pfpd.FRAG_PICKER)
+        add_frag_to_list()
+    for win in alpha_wins:
+        fragments_flags_and_cfg(create_custom_pp(win, 'a_psipred', psip_file), check_file, 1)
+        os.system(pfpd.FRAG_PICKER)
+        add_frag_to_list()
+
+
 def make_pick_fragments(pep_seq, ss_pred=None):
     """Run fragment picker"""
     if not os.path.exists(frag_picker_dir):
@@ -92,39 +167,23 @@ def make_pick_fragments(pep_seq, ss_pred=None):
     with open(os.path.join(frag_picker_dir, 'xxxxx.fasta'), 'w') as fasta_file:
         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
     os.chdir(frag_picker_dir)
+    print('************Running BLAST/PsiPred***************')
 
     os.system(pfpd.MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
+
     if sec_struct:
-        os.rename('xxxxx.psipred_ss2', 'xxxxx.psipred_ss2_orig')
-        with open('xxxxx.psipred_ss2', 'w') as psi_new:
-            with open('xxxxx.psipred_ss2_orig', 'r') as psipred:
-                psi_new.write(psipred.readline())  # write a header to a new custom psipred
-                psipred_lines = psipred.readlines()
-                for i in range(len(psipred_lines)):
-                    new_line = psipred_lines[i].split()
-                    new_line[2] = ss_pred[i]
-                    if ss_pred[i] == 'C':
-                        new_line[3] = '0.700'
-                        new_line[4] = '0.290'
-                        new_line[5] = '0.010'
-                    elif ss_pred[i] == 'H':
-                        new_line[3] = '0.290'
-                        new_line[4] = '0.700'
-                        new_line[5] = '0.010'
-                    elif ss_pred[i] == 'E':
-                        new_line[3] = '0.290'
-                        new_line[4] = '0.010'
-                        new_line[5] = '0.700'
-                    psi_new.write('\t'.join(new_line) + '\n')
-        fragments_flags_and_cfg()
+        fragments_flags_and_cfg(create_custom_pp(ss_pred))  # Create custom psipred file and flag file with its name
+        psi_p_file, checkpoint_file = create_custom_pp(ss_pred), 'xxxxx.checkpoint'
     elif full_p:
         psi_p_file = cut_file(1)  # cut psipred_ss2
         checkpoint_file = cut_file(0)  # cut checkpoint
         fragments_flags_and_cfg(psi_p_file, checkpoint_file)  # Write flags files
     else:
         fragments_flags_and_cfg()
+        psi_p_file, checkpoint_file = 'xxxxx.psipred_ss2', 'xxxxx.checkpoint'
     print("**************Picking fragments**************")
     os.system(pfpd.FRAG_PICKER)  # Run fragment picker
+    add_alpha_beta_frags(psi_p_file, checkpoint_file)
     os.system(pfpd.COPY.format(pfpd.FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
     os.chdir(root)
 
@@ -332,7 +391,7 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, fasta_start, sequence, fragment_name)
                 pdb_resfiles_dict[outfile] = 'resfile_' + fragment_name
-                if frags_count >= pfpd.NUM_OF_FRAGS + add_frags_num:
+                if frags_count >= frags_num + add_frags_num:
                     print("**************Finished with fragments**************")
                     break
             else:
@@ -404,8 +463,8 @@ def check_designed_frags():
         if os.path.splitext(os.path.basename(frag))[1] == '.pdb':
             review_frag(frag, peptide_seq)
     frags_count = count_pdbs(fixbb_dir)
-    if frags_count < pfpd.NUM_OF_FRAGS:
-        return pfpd.NUM_OF_FRAGS - frags_count
+    if frags_count < frags_num:
+        return frags_num - frags_count
     else:
         return False
 
@@ -419,7 +478,7 @@ def extract_more_frags(n_frags, defective_from_fixbb):
         bad_frags_shift = count_pdbs(bad_frags_dir) + defective_from_fixbb
     else:
         bad_frags_shift = defective_from_fixbb
-    add_frags = add_frags[pfpd.NUM_OF_FRAGS + bad_frags_shift:]
+    add_frags = add_frags[frags_num + bad_frags_shift:]
     return process_frags(peptide_seq, add_frags, n_frags)
 
 
@@ -471,8 +530,8 @@ def arg_parser():
                                                  'If you want to run the protocol with talaris2014, add '
                                                  '"--restore_talaris_behavior" option and make sure you have'
                                                  ' the 2016 version of Rosetta. For running with jd3 - add'
-                                                 ' --jd3 option. If the secondary structure is known add --sec_struct'
-                                                 'following by a file with secondary structure. If you want the '
+                                                 ' --jd3 option. If the secondary structure is known add --sec_struct ' 
+                                                 'following by a file with secondary structure. If you want  '
                                                  'PsiPred of the full protein (or just longer version of your actual '
                                                  'peptide), which is recommended, add --long_pep_psipred\n'
                                                  'option followed by your full/long protein fasta file')
@@ -482,6 +541,7 @@ def arg_parser():
     parser.add_argument('--jd3', dest='job_distributor', action='store_true', default=False)
     parser.add_argument('--sec_struct', dest='ss_pred', default=None)
     parser.add_argument('--long_pep_psipred', dest='full_prot_seq', default=None)  # pdb_name,chain (e.g. 1abc,A)
+    parser.add_argument('--n_frag', dest='num_frags', default=pfpd.NUM_OF_FRAGS)
 
     return parser
 
@@ -529,6 +589,7 @@ if __name__ == "__main__":
     jd3 = arguments.job_distributor
     sec_struct = arguments.ss_pred
     full_p = arguments.full_prot_seq
+    frags_num = int(arguments.num_frags)
 
     # Define all the directories that will be created:
     root = os.getcwd()

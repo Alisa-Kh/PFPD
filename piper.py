@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-
 import argparse
 import os
 import subprocess
@@ -32,14 +31,14 @@ SBATCH_PREP_FPD_INPUT = "#!/bin/sh\n" \
 # 'dependency' in these commands will be changed to specific 'dependency=aftercorr$job_num' before run
 
 RUN_PIPER = ['sbatch', '--mem=1500m', 'run_piper']
-RUN_EXTRACT_DECOYS = ['sbatch', 'dependency', '--mem-per-cpu=1500m', 'run_extract_decoys']
+RUN_EXTRACT_DECOYS = ['sbatch', '--mem-per-cpu=1500m', 'run_extract_decoys']
 
 #############################################################################################
 """Attention! Next 3 functions send all the jobs to cluster. They are also SLURM dependent"""
 #############################################################################################
 
 
-def create_batch(receptor, run, i=0):
+def create_batch(receptor, run, i):
     """Create batch scripts for jobs that will be sent to cluster, such as
     PIPER docking, models extraction, fpd input preparation and fpd refinement"""
     rec_name = os.path.join(piper_dir, receptor.lower() + '_nmin.pdb')
@@ -52,14 +51,15 @@ def create_batch(receptor, run, i=0):
             extract_decoys.write(SBATCH_EXTRACT_TOP_DECOYS % (pfpd.PIPER_MODELS_EXTRACTED, lig_name))
 
 
-def send_piper_jobs(processed_receptor):
+def send_piper_jobs(processed_receptor, n_frags):
     print("**************Sending PIPER jobs**************")
     receptor_name = os.path.splitext(os.path.basename(receptor_path))[0]
+    array_for_flexpepdock = ''
 
     # PIPER step
     os.chdir(piper_dir)
     ppk_receptor = os.path.splitext(processed_receptor)[0] + '.ppk.pdb'
-    for i in range(1, pfpd.NUM_OF_FRAGS + 1):
+    for i in range(1, n_frags + 1):
         run_dir = "{:02}".format(i)
         if not os.path.exists(run_dir):
             os.makedirs(run_dir)
@@ -73,33 +73,16 @@ def send_piper_jobs(processed_receptor):
         # run PIPER docking, extract top 250 decoys and prepare input for refinement
         run_piper = str(subprocess.check_output(RUN_PIPER))
         piper_id = ''.join(d for d in run_piper if d.isdigit())
-        RUN_EXTRACT_DECOYS[1] = '--dependency=aftercorr:%s' % piper_id
-        subprocess.call(RUN_EXTRACT_DECOYS)
-
+        RUN_EXTRACT_DECOYS.insert(1, '--dependency=aftercorr:%s' % piper_id)
+        run_extract_decoys = str(subprocess.check_output(RUN_EXTRACT_DECOYS))
+        array_for_flexpepdock += ':' + ''.join(d for d in run_extract_decoys if d.isdigit())
         os.chdir(piper_dir)
+    print(array_for_flexpepdock)
 
 
 ####################################################
 """ATTENTION!!!!! Do not change the code below!!!"""
 ####################################################
-
-
-def rename_chain(structure, chain_id):
-    """Rename chain id of a structure"""
-    renamed_struct = []
-    with open(structure, 'r') as pdb:
-        pdb_lines = pdb.readlines()
-    for line in pdb_lines:
-        if line[0:4] != 'ATOM' and line[0:6] != 'HETATM':
-            continue
-        else:
-            new_line = list(line)
-            new_line[21] = chain_id
-            renamed_struct.append(''.join(new_line))
-    os.remove(structure)
-    with open(structure, 'w') as new_structure:
-        for new_chain_line in renamed_struct:
-            new_structure.write(new_chain_line)
 
 
 def process_for_piper(receptor):
@@ -110,10 +93,11 @@ def process_for_piper(receptor):
     print("**************Preparing PIPER inputs**************")
     for frag in os.listdir(fixbb_dir):
         if os.path.splitext(frag)[1] == '.pdb':   # Rename chain ID to 'B'
-            rename_chain(os.path.join(fixbb_dir, frag), 'B')
+            pfpd.rename_chain(os.path.join(fixbb_dir, frag), 'B')
             frags_list.append(os.path.basename(frag))
+    n_frags = pfpd.count_pdbs(fixbb_dir)
     with open(os.path.join(piper_dir, 'runs_list'), 'w') as runs_list:  # Create list 1 - 50
-        for i in range(1, pfpd.NUM_OF_FRAGS + 1):
+        for i in range(1, n_frags + 1):
             runs_list.write("{:02}\n".format(i))
 
     # Create symlinks for piper run
@@ -136,13 +120,14 @@ def process_for_piper(receptor):
     os.chdir(piper_dir)
 
     os.system(pfpd.CLEAN_PDB.format(receptor, 'nochain'))  # Clean the receptor
-    rename_chain(os.path.basename(receptor)[:-4] + '_nochain.pdb', 'A')
+    pfpd.rename_chain(os.path.basename(receptor)[:-4] + '_nochain.pdb', 'A')
     name_for_piper = os.path.basename(receptor).lower()
     os.rename(os.path.splitext(os.path.basename(receptor))[0] + '_nochain.pdb',
               name_for_piper)
     os.system(pfpd.PDBPREP.format(name_for_piper))
     os.system(pfpd.PDBNMD.format(name_for_piper))
     os.chdir(root)
+    return n_frags
 
 
 def arg_parser():
@@ -158,11 +143,11 @@ def arg_parser():
 def run_protocol(receptor):
 
     # process ligands and receptor for piper run
-    process_for_piper(receptor)  # only basename
+    n_frags = process_for_piper(receptor)  # only basename
 
     # run piper docking, extract top 250 models from each run
 
-    send_piper_jobs(os.path.basename(receptor).lower())
+    send_piper_jobs(os.path.basename(receptor).lower(), n_frags)
 
 if __name__ == "__main__":
 

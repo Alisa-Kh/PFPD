@@ -40,10 +40,10 @@ SBATCH_CLUSTERING = '#!/bin/bash\n' \
 # 'dependency' in these commands will be changed to specific 'dependency=aftercorr$job_num' before run
 
 RUN_PREP_FPD_INPUTS = ['sbatch', '--mem-per-cpu=1500m', 'run_prepare_fpd_inputs']
-RUN_REFINEMENT = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_refinement']
-RUN_EXTRACT_TOP_MODEL = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'extract_model']
-RUN_RESCORING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'rescoring']
-RUN_CLUSTERING = ['sbatch', 'dependency', '--mem-per-cpu=1600m', 'run_clustering']
+RUN_REFINEMENT = ['sbatch', '--mem-per-cpu=1600m', 'run_refinement']
+RUN_EXTRACT_TOP_MODEL = ['sbatch', '--mem-per-cpu=1600m', 'extract_model']
+RUN_RESCORING = ['sbatch', '--mem-per-cpu=1600m', 'rescoring']
+RUN_CLUSTERING = ['sbatch', '--mem-per-cpu=1600m', 'run_clustering']
 
 #############################################################################################
 """Attention! Next 2 functions send all the jobs to cluster. They are also SLURM dependent"""
@@ -81,11 +81,13 @@ def run_fpd_jobs(receptor, native_path, silent_f):
     receptor_name = os.path.basename(receptor).lower()
     ppk_receptor = os.path.splitext(receptor_name)[0] + '.ppk.pdb'
     jobs_list = []
+    frags_num = pfpd.count_dirs(piper_dir) - 1  # There is also 'ligands' directory
     os.chdir(piper_dir)
-    for i in range(1, pfpd.NUM_OF_FRAGS + 1):
+    for i in range(1, frags_num + 1):
         run_dir = "{:02}".format(i)
         os.chdir(run_dir)
         create_batch(ppk_receptor, 'prepare_inputs')
+        RUN_PREP_FPD_INPUTS.insert(1, '--dependency=aftercorr%s' % after_job)
         run_prepare_fpd_inputs = str(subprocess.check_output(RUN_PREP_FPD_INPUTS))
         jobs_list.append(''.join(d for d in run_prepare_fpd_inputs if d.isdigit()))
         os.chdir(piper_dir)
@@ -99,7 +101,7 @@ def run_fpd_jobs(receptor, native_path, silent_f):
     all_prep_jobs = ''
     for job_id in jobs_list:
         all_prep_jobs += ':' + job_id  # there are multiple jobs that need to be separated by semicolon
-    RUN_REFINEMENT[1] = '--dependency=aftercorr%s' % all_prep_jobs
+    RUN_REFINEMENT.insert(1, '--dependency=aftercorr%s' % all_prep_jobs)
     run_refinement = str(subprocess.check_output(RUN_REFINEMENT))
 
     refinement_id = ''.join(d for d in run_refinement if d.isdigit())
@@ -116,20 +118,20 @@ def run_fpd_jobs(receptor, native_path, silent_f):
                 rescore.write(SBATCH_RESCORING.format(sc_func='talaris14'))
             else:
                 rescore.write(SBATCH_RESCORING.format(sc_func='ref2015'))
-        RUN_EXTRACT_TOP_MODEL[1] = '--dependency=aftercorr:%s' % refinement_id
+        RUN_EXTRACT_TOP_MODEL.insert(1, '--dependency=aftercorr:%s' % refinement_id)
         extract_model = str(subprocess.check_output(RUN_EXTRACT_TOP_MODEL))
 
         extract_model_id = ''.join(d for d in extract_model if d.isdigit())
-        RUN_RESCORING[1] = '--dependency=aftercorr:%s' % extract_model_id
+        RUN_RESCORING.insert(1, '--dependency=aftercorr:%s' % extract_model_id)
         rescoring = str(subprocess.check_output(RUN_RESCORING))
 
         rescoring_id = ''.join(d for d in rescoring if d.isdigit())
         os.chdir(clustering_dir)
-        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % rescoring_id
+        RUN_CLUSTERING.insert(1, '--dependency=aftercorr:%s' % rescoring_id)
         subprocess.call(RUN_CLUSTERING)
     else:
         os.chdir(clustering_dir)
-        RUN_CLUSTERING[1] = '--dependency=aftercorr:%s' % refinement_id
+        RUN_CLUSTERING.insert(1, '--dependency=aftercorr:%s' % refinement_id)
         subprocess.call(RUN_CLUSTERING)
     os.chdir(root)
 
@@ -197,7 +199,7 @@ def check_native_structure(native_path):
     """ Check the length of native struct with the length of the receptor + pep"""
     with open(native_path, 'r') as n:
         native_calphas = 0
-        native_sequence = ''
+        # native_sequence = ''
         for line in n:
             if line[13:15] == 'CA':
                 native_calphas += 1
@@ -215,24 +217,6 @@ def check_native_structure(native_path):
         return
 
 
-def rename_chain(structure, chain_id):
-    """Rename chain id of a structure"""
-    renamed_struct = []
-    with open(structure, 'r') as pdb:
-        pdb_lines = pdb.readlines()
-    for line in pdb_lines:
-        if line[0:4] != 'ATOM' and line[0:6] != 'HETATM':
-            continue
-        else:
-            new_line = list(line)
-            new_line[21] = chain_id
-            renamed_struct.append(''.join(new_line))
-    os.remove(structure)
-    with open(structure, 'w') as new_structure:
-        for new_chain_line in renamed_struct:
-            new_structure.write(new_chain_line)
-
-
 def build_peptide(pep):
     """Create directory for prepacking and, extended peptide and change its chain id to 'B'"""
     print("Building extended peptide for prepacking")
@@ -243,7 +227,7 @@ def build_peptide(pep):
     os.system(pfpd.BUILD_PEPTIDE.format(pep))
 
     # Change chain ID to 'B'
-    rename_chain('peptide.pdb', 'B')
+    pfpd.rename_chain('peptide.pdb', 'B')
     os.chdir(root)
 
 
@@ -301,9 +285,7 @@ def arg_parser():
     parser.add_argument('--restore_talaris_behavior', dest='talaris', action='store_true', default=False)
     parser.add_argument('--receptor_min', dest='minimize_receptor', action='store_true', default=False)
     parser.add_argument('--native', dest='native_structure', default=None)
-    parser.add_argument('--jd3', dest='job_distributor', action='store_true', default=False)
-    parser.add_argument('--sec_struct', dest='ss_pred', default=None)
-    parser.add_argument('--pep_from_fasta', dest='full_prot_seq', default=None)  # pdb_name,chain (e.g. 1abc,A)
+    parser.add_argument('--after', dest='last_job', default=None)
 
     return parser
 
@@ -344,9 +326,7 @@ if __name__ == "__main__":
     talaris = arguments.talaris
     minimization = arguments.minimize_receptor
     native = arguments.native_structure
-    jd3 = arguments.job_distributor
-    sec_struct = arguments.ss_pred
-    full_p = arguments.full_prot_seq
+    after_job = arguments.last_job
 
     # Define all the directories that will be created:
     root = os.getcwd()

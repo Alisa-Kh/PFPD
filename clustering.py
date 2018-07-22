@@ -2,7 +2,7 @@
 
 import sys
 import os
-import pfpd_protocol as protocol
+import pfpd_const as protocol
 import math
 
 HEADER = 'DecoyID\t\tClusterN MemberID\tI_sc\tReweighted_sc'
@@ -63,8 +63,8 @@ def results_processing():
         whole_log = log.readlines()
     with open('cluster_list', 'w') as cluster_lst:
         decoys_lst = []
-        final_lines_inx = whole_log.index('Timing: \n')
-        relevant_lines = whole_log[final_lines_inx - clustering_pool + 1:final_lines_inx]
+        final_lines_idx = whole_log.index('Timing: \n')
+        relevant_lines = whole_log[final_lines_idx - clustering_pool + 1:final_lines_idx]
         for line in relevant_lines:
             cluster_lst.write(line.split()[2] + '\t' + line.split()[3] + '\t' + line.split()[4] + '\n')
             decoys_lst.append(line.split()[2] + '\t' + line.split()[3] + '\t' + line.split()[4])
@@ -102,7 +102,10 @@ def collect_results():
             cur_line = top_reweighted.readline().split()
             struct = 'c.{cluster}.{member}.pdb'.format(cluster=cur_line[1], member=cur_line[2])
             os.system(protocol.COPY.format(os.path.join(CLUSTERING_DIR, struct), FINAL_DIR))
-    os.remove('../refinement/*.gz')
+    # for gz_file in os.listdir('../'):
+    #     if os.path.isfile(os.path.join('../', gz_file)) and os.path.splitext(os.path.basename(gz_file))[1] == '.gz':
+    #         os.remove(gz_file)
+
 
 if __name__ == "__main__":
 
@@ -110,7 +113,7 @@ if __name__ == "__main__":
     native = sys.argv[2]
     silent_input = sys.argv[3]
 
-    if os.path.isfile('rescore.sc'):
+    if os.path.isfile('../rescore.sc'):
         sc_file = '../rescore.sc'
     else:
         sc_file = '../score.sc'

@@ -2,7 +2,7 @@
 
 import sys
 import os
-import pfpd_protocol as protocol
+import pfpd_const as protocol
 
 
 def rescoring_flags(lowest_sc_struct):
