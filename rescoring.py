@@ -2,7 +2,7 @@
 
 import sys
 import os
-import pfpd_protocol as protocol
+import pfpd_const as protocol
 
 
 def rescoring_flags(lowest_sc_struct):
@@ -13,15 +13,17 @@ def rescoring_flags(lowest_sc_struct):
                       '-out:file:silent_struct_type binary\n'
                       '-out:file:silent decoys_rescored.silent\n'
                       '-flexPepDocking:flexpep_score_only\n'
-                      '-native {}\n'
-                      '-mute all\n-unmute protocols.flexPepDocking'.format(lowest_sc_struct))
+                      '-use_input_sc\n'
+                      '-unboundrot {receptor}\n'
+                      '-native {nat}\n'
+                      '-mute all\n-unmute protocols.flexPepDocking'.format(nat=lowest_sc_struct, receptor=receptor))
 
 
 def rescoring():
     with open('score.sc', 'r') as score_file:
         scores = score_file.readlines()
-        header = scores[1].split()
-        scores = scores[2:]  # SEQUENCE line + header
+        header = scores[1].split()  # scores[0] = SEQUENCE:
+        scores = scores[2:]
         reweighted_column = header.index('reweighted_sc')
         description_column = header.index('description')
 
@@ -37,4 +39,5 @@ def rescoring():
 
 if __name__ == "__main__":
     sc_func = sys.argv[1]
+    receptor = sys.argv[2]
     rescoring()

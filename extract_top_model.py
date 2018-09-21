@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 import os
-import pfpd_protocol as protocol
+import pfpd_const as protocol
 
 EXTRACT_MODEL = os.path.join(protocol.ROSETTA_BIN, 'extract_pdbs.linuxgccrelease') + \
                 ' -database ' + protocol.ROSETTA_DB + ' @extract_flags > log'
