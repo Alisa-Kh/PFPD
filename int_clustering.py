@@ -1,5 +1,3 @@
-#!/usr/bin/python
-
 import sys
 import os
 import pfpd_const as protocol
@@ -19,6 +17,7 @@ def create_pdb_list():
                 scores = scores[i:]  # Scores start from here
                 break
         reweighted_column = header.index('reweighted_sc')
+        interface_column = header.index('I_sc')
         description_column = header.index('description')
 
         total_decoys = len(scores)
@@ -26,7 +25,7 @@ def create_pdb_list():
 
     with open('pdb_list', 'w') as pdbs:
         i = 0
-        for line in sorted(scores, key=lambda sc_line: float(sc_line.split()[reweighted_column])):
+        for line in sorted(scores, key=lambda sc_line: float(sc_line.split()[interface_column])):
             pdbs.write(line.split()[description_column] + '\n')
             i += 1
             if i >= clustering_pool_num:
@@ -122,4 +121,5 @@ if __name__ == "__main__":
     actual_radius = define_actual_r()
     run_clustering(actual_radius)
     results_processing()
-    collect_results()
+#    collect_results()
+

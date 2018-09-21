@@ -13,8 +13,10 @@ def rescoring_flags(lowest_sc_struct):
                       '-out:file:silent_struct_type binary\n'
                       '-out:file:silent decoys_rescored.silent\n'
                       '-flexPepDocking:flexpep_score_only\n'
-                      '-native {}\n'
-                      '-mute all\n-unmute protocols.flexPepDocking'.format(lowest_sc_struct))
+                      '-use_input_sc\n'
+                      '-unboundrot {receptor}\n'
+                      '-native {nat}\n'
+                      '-mute all\n-unmute protocols.flexPepDocking'.format(nat=lowest_sc_struct, receptor=receptor))
 
 
 def rescoring():
@@ -37,4 +39,5 @@ def rescoring():
 
 if __name__ == "__main__":
     sc_func = sys.argv[1]
+    receptor = sys.argv[2]
     rescoring()

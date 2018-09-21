@@ -163,9 +163,9 @@ def run_piper_fpd_jobs(processed_receptor, native_path, silent_f):
             extract_pdb.write(SBATCH_EXTRACT_TOP_MODEL)
         with open(os.path.join(refinement_dir, 'rescoring'), 'w') as rescore:
             if talaris:
-                rescore.write(SBATCH_RESCORING.format(sc_func='talaris14'))
+                rescore.write(SBATCH_RESCORING.format(sc_func='talaris14', rec=receptor_path))
             else:
-                rescore.write(SBATCH_RESCORING.format(sc_func='ref2015'))
+                rescore.write(SBATCH_RESCORING.format(sc_func='ref2015', rec=receptor_path))
         RUN_EXTRACT_TOP_MODEL.insert(1, '--dependency=aftercorr:%s' % refinement_id)
         extract_model = str(subprocess.check_output(RUN_EXTRACT_TOP_MODEL))
 
@@ -322,7 +322,7 @@ def check_native_structure(native_path):
 #             if line[13:15] == 'CA':
 #                 native_calphas += 1
 #                 # resi = list(pfpd.THREE_TO_ONE_AA.keys())[list(pfpd.THREE_TO_ONE_AA.values()).index(line[17:20])]
-# #               native_sequence += line[17:20]  # TODO: you are not comparing the sequence !!!
+# #               native_sequence += line[17:20]
 #     with open(receptor_path, 'r') as rec:
 #         rec_calphas = 0
 #         for line in rec:
@@ -480,94 +480,6 @@ def make_pick_fragments(pep_seq, ss_pred=None):
     add_alpha_beta_frags(psi_p_file, checkpoint_file)
     os.system(pfpd.COPY.format(pfpd.FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
     os.chdir(root)
-# def cut_file(col_num):
-#     if col_num == 1:
-#         file_name = 'psipred_ss2_pep'
-#         original_file = 'xxxxx.psipred_ss2'
-#     else:
-#         file_name = 'checkpoint'
-#         original_file = 'xxxxx.checkpoint'
-#     with open(original_file, 'r') as f:
-#         f_lines = f.readlines()
-#         i = 0
-#         for line_num in range(1, len(f_lines) + 1):
-#             if f_lines[line_num].split()[col_num] == peptide_seq[i]:
-#                 i += 1
-#                 if i == len(peptide_seq):
-#                     with open(file_name, 'w') as cut_f:
-#                         if file_name == 'psipred_ss2_pep':
-#                             cut_f.write(f_lines[0])
-#                             for j in range(pep_length - 1, -1, -1):
-#                                 new_line = f_lines[line_num - j].split()
-#                                 new_line[0] = str(i - j)
-#                                 cut_f.write('\t'.join(new_line) + '\n')
-#                         else:
-#                             cut_f.write(str(pep_length) + '\n')
-#                             for j in range(pep_length - 1, -1, -1):
-#                                 cut_f.write(f_lines[line_num - j])
-#                     break
-#             else:
-#                 i = 0
-#     return file_name
-#
-#
-# def create_psipred_from_full_protein(full_pep_fasta):
-#     """Reads fasta and calls make_pick fragments"""
-#     if not os.path.exists(frag_picker_dir):
-#         os.makedirs(frag_picker_dir)
-#     os.chdir(frag_picker_dir)
-#     with open(full_pep_fasta) as fasta:
-#         full_seq = fasta.readlines()
-#         if full_seq[0][0] == '>':
-#             full_seq = full_seq[1:]
-#             full_seq = "".join(line.strip() for line in full_seq)
-#         else:
-#             full_seq = "".join(line.strip() for line in full_seq)
-#
-#     make_pick_fragments(full_seq)
-#
-#
-# def make_pick_fragments(pep_seq, ss_pred=None):
-#     """Run fragment picker"""
-#     if not os.path.exists(frag_picker_dir):
-#         os.makedirs(frag_picker_dir)
-#     # Create fasta file:
-#     with open(os.path.join(frag_picker_dir, 'xxxxx.fasta'), 'w') as fasta_file:
-#         fasta_file.write('>|' + pep_seq + '\n' + pep_seq + '\n')
-#     os.chdir(frag_picker_dir)
-#
-#     os.system(pfpd.MAKE_FRAGMENTS.format('xxxxx.fasta'))  # Run make_fragments.pl script
-#     if sec_struct:
-#         os.rename('xxxxx.psipred_ss2', 'xxxxx.psipred_ss2_orig')
-#         with open('xxxxx.psipred_ss2', 'w') as psi_new:
-#             with open('xxxxx.psipred_ss2_orig', 'r') as psipred:
-#                 psipred_lines = psipred.readlines()
-#                 for i, line in enumerate(psipred_lines):
-#                     new_line = line.split()
-#                     new_line[2] = ss_pred[i]
-#                     if ss_pred[i] == 'C':
-#                         new_line[3] = '0.700'
-#                         new_line[4] = '0.290'
-#                         new_line[5] = '0.010'
-#                     elif ss_pred[i] == 'H':
-#                         new_line[3] = '0.290'
-#                         new_line[4] = '0.700'
-#                         new_line[5] = '0.010'
-#                     elif ss_pred[i] == 'E':
-#                         new_line[3] = '0.290'
-#                         new_line[4] = '0.010'
-#                         new_line[5] = '0.700'
-#                     psi_new.write('\t'.join(new_line) + '\n')
-#     elif full_p:
-#         psi_p_file = cut_file(1)  # cut psipred_ss2
-#         checkpoint_file = cut_file(0)  # cut checkpoint
-#         fragments_flags_and_cfg(psi_p_file, checkpoint_file)  # Write flags files
-#     else:
-#         fragments_flags_and_cfg()
-#     print("**************Picking fragments**************")
-#     os.system(pfpd.FRAG_PICKER)  # Run fragment picker
-#     os.system(pfpd.COPY.format(pfpd.FRAGS_FILE.format(pep_length), root))  # Copy fragments file (frags.100.nmers)
-#     os.chdir(root)
 
 
 def create_params_file(frags):
@@ -661,7 +573,7 @@ def review_frag(outfile, sequence):
     return bad_frag(outfile)
 
 
-# TODO: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# TODO: This function doesn't work, and isn't called from anywhere. So make it work!!!
 def renumber_frag(fragment):
     renumbered = []
     with open(fragment, 'r') as frag:
@@ -746,7 +658,7 @@ def process_frags(pep_sequence, fragments, add_frags_num=0):
             if is_frag_ok:
                 os.remove(pdb_full)
                 os.remove(fasta_name)
-                # renumber_frag(outfile)      # todo: uncomment after it is finished
+                # renumber_frag(outfile)      # todo: uncomment after the function is finished
                 frags_count = count_pdbs(fragments_dir)
                 print("creating resfile")
                 create_resfile(pep_sequence, chain, fasta_start, sequence, fragment_name)

@@ -68,7 +68,7 @@ FPD_TALARIS = 'ls *gz >input_list\n' \
               'mpirun ' + os.path.join(ROSETTA_2016_BIN, 'FlexPepDocking.mpi.linuxgccrelease') + \
               ' -database ' + ROSETTA_2016_DB + ' @{flags} >>refinement_log'
 EXTRACT_MODEL = 'python ' + PFPD_SCRIPTS + 'extract_top_model.py'
-RESCORING = 'python ' + PFPD_SCRIPTS + 'rescoring.py {sc_func}'
+RESCORING = 'python ' + PFPD_SCRIPTS + 'rescoring.py {sc_func} {rec}'
 CLUSTERING = 'python ' + PFPD_SCRIPTS + 'clustering.py 2.0 {native} {decoys}'
 
 # Commands (PIPER)
